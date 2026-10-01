@@ -161,6 +161,9 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 		# Linux screen coordinates are not Windows desktop coordinates.
 		return None
 
+	def _get_treeInterceptor(self):
+		return None
+
 
 class RemoteA11yHandler:
 	def __init__(self, ioThread: IoThread, pipeName: str):
