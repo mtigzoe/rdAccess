@@ -137,6 +137,10 @@ class FakeNamedPipeClient:
 		self.pipeProcessId = 4242
 		self.pipeParentProcessId = None
 		self.closed = False
+		self.writes = []
+
+	def write(self, data):
+		self.writes.append(data)
 
 	def close(self):
 		self.closed = True
@@ -231,6 +235,7 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 					"role": "push button",
 					"description": "Save changes",
 					"value": "",
+					"actions": ["click", "show menu"],
 					"states": ["focused", "focusable"],
 					"bounds": [10, 20, 80, 30],
 				},
@@ -339,6 +344,41 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 		self.assertEqual(focus.parent.lastChild.name, "Help")
 		self.assertIsNone(focus.previous.previous)
 		self.assertIsNone(focus.next.next)
+
+	def test_nvda_do_action_sends_remote_action_request(self):
+		wire = (
+			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
+			+ json.dumps(self._focus_message()).encode()
+			+ b"\n"
+		)
+		self.handler._onReceive(wire)
+		queueHandler.pumpAll()
+		focus = self.eventHandler.events[0][1]
+
+		self.assertEqual(focus._get_actionCount(), 2)
+		self.assertEqual(focus.getActionName(), "click")
+		self.assertEqual(focus.getActionName(1), "show menu")
+
+		focus.doAction(1)
+		self.assertEqual(
+			self.handler._dev.writes,
+			[b'{"type":"a11y_action","object_id":"save","action_index":1}\n'],
+		)
+
+	def test_default_action_uses_first_linux_action(self):
+		wire = (
+			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
+			+ json.dumps(self._focus_message()).encode()
+			+ b"\n"
+		)
+		self.handler._onReceive(wire)
+		queueHandler.pumpAll()
+		focus = self.eventHandler.events[0][1]
+		focus.doAction()
+		self.assertEqual(
+			self.handler._dev.writes[-1],
+			b'{"type":"a11y_action","object_id":"save","action_index":0}\n',
+		)
 
 	def test_focus_before_protocol_handshake_is_ignored(self):
 		self.handler._onReceive(json.dumps(self._focus_message()).encode() + b"\n")
