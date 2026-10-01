@@ -26,4 +26,4 @@ jobs:
         env:
           PYTHONPATH: addon
         run: |
-          python -m unittest -v tests.test_a11y
+          python tests/test_a11y.py -v
