@@ -224,6 +224,7 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 		self.assertEqual(obj._get_value(), "ready")
 		self.assertIs(obj._get_parent(), parent)
 		self.assertIsNone(obj._get_location())
+		self.assertIsNone(obj._get_treeInterceptor())
 
 
 if __name__ == "__main__":
