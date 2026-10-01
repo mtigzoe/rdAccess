@@ -125,10 +125,12 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 			return None
 		try:
 			index = parent._node.childIds.index(self._node.nodeId)
-			targetId = parent._node.childIds[index + offset]
-		except (ValueError, IndexError):
+		except ValueError:
 			return None
-		return self._objectMap.get(targetId)
+		targetIndex = index + offset
+		if targetIndex < 0 or targetIndex >= len(parent._node.childIds):
+			return None
+		return self._objectMap.get(parent._node.childIds[targetIndex])
 
 	def _get_previous(self) -> NVDAObjects.NVDAObject | None:
 		return self._sibling(-1)
