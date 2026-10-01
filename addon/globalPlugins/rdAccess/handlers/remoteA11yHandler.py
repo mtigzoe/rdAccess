@@ -64,7 +64,7 @@ _STATE_MAP = {
 
 class RemoteA11yObject(NVDAObjects.NVDAObject):
 	@classmethod
-	def findBestAPIClass(cls, kwargs, relation=None):
+	def findBestAPIClass(cls, _kwargs, _relation=None):
 		return cls
 
 	def __init__(
@@ -160,11 +160,9 @@ class RemoteA11yHandler:
 			if existing is not None:
 				return existing
 			node = nodes[nodeId]
-			parentObject: NVDAObjects.NVDAObject | None
-			if node.parentId is None:
-				parentObject = self._hostObject
-			else:
-				parentObject = buildObject(node.parentId)
+			parentObject: NVDAObjects.NVDAObject | None = (
+				self._hostObject if node.parentId is None else buildObject(node.parentId)
+			)
 			obj = RemoteA11yObject(
 				processID=processID,
 				node=node,
