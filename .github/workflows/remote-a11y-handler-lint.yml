@@ -1,0 +1,20 @@
+name: Remote A11Y handler lint diff
+
+on:
+  pull_request:
+    paths:
+      - "tests/test_remoteA11yHandler.py"
+      - ".github/workflows/remote-a11y-handler-lint.yml"
+
+jobs:
+  diff:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync
+      - name: Show Ruff fix
+        shell: pwsh
+        run: |
+          uv run ruff check --fix tests/test_remoteA11yHandler.py
+          git diff -- tests/test_remoteA11yHandler.py
