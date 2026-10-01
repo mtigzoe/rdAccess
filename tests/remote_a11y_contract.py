@@ -7,7 +7,6 @@ import pathlib
 import sys
 import unittest
 
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 HANDLER_PATH = REPO_ROOT / "addon" / "globalPlugins" / "rdAccess" / "handlers" / "remoteA11yHandler.py"
 
