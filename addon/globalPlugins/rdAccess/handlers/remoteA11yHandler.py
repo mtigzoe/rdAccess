@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import json
 import typing
 
 import addonHandler
@@ -243,18 +242,7 @@ class RemoteA11yHandler:
 		eventHandler.executeEvent("gainFocus", focus)
 
 	def _sendAction(self, objectId: str, actionIndex: int) -> None:
-		payload = (
-			json.dumps(
-				{
-					"type": "a11y_action",
-					"object_id": objectId,
-					"action_index": actionIndex,
-				},
-				separators=(",", ":"),
-			).encode("utf-8")
-			+ b"\n"
-		)
-		self._dev.write(payload)
+		self._dev.write(a11y.encodeActionRequest(objectId, actionIndex))
 
 	def event_gainFocus(self, obj: NVDAObjects.NVDAObject) -> None:
 		if isinstance(obj, RemoteA11yObject):
