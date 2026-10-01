@@ -33,6 +33,7 @@ class A11yNode:
 	states: frozenset[str]
 	bounds: tuple[int, int, int, int] | None
 
+
 @dataclass(frozen=True)
 class ProtocolVersionMessage:
 	version: int
@@ -65,6 +66,7 @@ def _decodeId(value: Any, *, field: str, allowNone: bool = False) -> str | None:
 	if not result or len(result) > MAX_ID_CHARS:
 		raise ValueError(f"{field} is empty or too long")
 	return result
+
 
 def _decodeBounds(value: Any) -> tuple[int, int, int, int] | None:
 	if value is None:
@@ -164,3 +166,30 @@ class A11yJsonLineReceiver:
 				messages.append(decodeMessage(decoded))
 			except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
 				continue
+
+
+class A11ySessionDecoder:
+	"""Accept semantic messages only after a valid NVDA-A11Y handshake.
+
+	The transport is exposed to a remote session.  Even though the JSON decoder
+	validates every message structurally, focus data should not affect NVDA until
+	the peer has explicitly selected the expected protocol version and channel.
+	"""
+
+	def __init__(self):
+		self._receiver = A11yJsonLineReceiver()
+		self._ready = False
+
+	@property
+	def ready(self) -> bool:
+		return self._ready
+
+	def feed(self, data: bytes) -> list[A11yMessage]:
+		accepted: list[A11yMessage] = []
+		for message in self._receiver.feed(data):
+			if isinstance(message, ProtocolVersionMessage):
+				self._ready = True
+				accepted.append(message)
+			elif self._ready:
+				accepted.append(message)
+		return accepted
