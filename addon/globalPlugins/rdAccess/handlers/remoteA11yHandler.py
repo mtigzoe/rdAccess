@@ -62,6 +62,7 @@ _STATE_MAP = {
 	"selected": controlTypes.State.SELECTED,
 }
 
+
 class RemoteA11yObject(NVDAObjects.NVDAObject):
 	@classmethod
 	def findBestAPIClass(cls, kwargs, relation=None):  # noqa: ARG003

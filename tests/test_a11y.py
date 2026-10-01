@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 import unittest
 
-from lib.a11y import A11yJsonLineReceiver, A11ySessionDecoder, FocusMessage, ProtocolVersionMessage, decodeMessage
+from lib.a11y import (
+	A11yJsonLineReceiver,
+	A11ySessionDecoder,
+	FocusMessage,
+	ProtocolVersionMessage,
+	decodeMessage,
+)
 
 
 class A11yMessageTests(unittest.TestCase):
@@ -113,12 +119,10 @@ class A11yReceiverTests(unittest.TestCase):
 		self.assertEqual(len(messages), 1)
 		self.assertIsInstance(messages[0], FocusMessage)
 		self.assertEqual(messages[0].objects[0].name, "Open")
+
 	def test_handles_multiple_messages_per_read(self):
 		receiver = A11yJsonLineReceiver()
-		data = (
-			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
-			+ self._line("Two")
-		)
+		data = b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n' + self._line("Two")
 		messages = receiver.feed(data)
 		self.assertEqual(len(messages), 2)
 		self.assertIsInstance(messages[0], ProtocolVersionMessage)
@@ -129,7 +133,6 @@ class A11yReceiverTests(unittest.TestCase):
 		messages = receiver.feed(b"{not json}\n" + self._line("Good"))
 		self.assertEqual(len(messages), 1)
 		self.assertEqual(messages[0].objects[0].name, "Good")
-
 
 
 class A11ySessionDecoderTests(unittest.TestCase):
@@ -162,10 +165,7 @@ class A11ySessionDecoderTests(unittest.TestCase):
 
 	def test_handshake_enables_following_focus(self):
 		decoder = A11ySessionDecoder()
-		data = (
-			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
-			+ self._focusLine("Open")
-		)
+		data = b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n' + self._focusLine("Open")
 		messages = decoder.feed(data)
 		self.assertTrue(decoder.ready)
 		self.assertEqual(len(messages), 2)
@@ -175,10 +175,7 @@ class A11ySessionDecoderTests(unittest.TestCase):
 
 	def test_bad_handshake_does_not_enable_focus(self):
 		decoder = A11ySessionDecoder()
-		data = (
-			b'{"type":"protocol_version","version":99,"channel":"NVDA-A11Y"}\n'
-			+ self._focusLine()
-		)
+		data = b'{"type":"protocol_version","version":99,"channel":"NVDA-A11Y"}\n' + self._focusLine()
 		self.assertEqual(decoder.feed(data), [])
 		self.assertFalse(decoder.ready)
 
