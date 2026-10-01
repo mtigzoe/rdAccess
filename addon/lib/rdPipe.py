@@ -17,8 +17,10 @@ import addonHandler
 from logHandler import log
 from utils.displayString import DisplayStringIntEnum
 
+from .a11y import CHANNEL_NAME as A11Y_CHANNEL_NAME
 from .protocol.messages import CHANNEL_NAMES, DriverType
 
+COM_CLS_CHANNEL_NAMES_VALUE_A11Y: Final[str] = A11Y_CHANNEL_NAME
 COM_CLS_CHANNEL_NAMES_VALUE_BRAILLE: Final[str] = CHANNEL_NAMES[DriverType.BRAILLE]
 COM_CLS_CHANNEL_NAMES_VALUE_SPEECH: Final[str] = CHANNEL_NAMES[DriverType.SPEECH]
 COM_CLASS_FOLDER: Final[str] = r"SOFTWARE\Classes\CLSID\{D1F74DC7-9FDE-45BE-9251-FA72D4064DA3}"
@@ -137,7 +139,11 @@ def dllInstall(
 	if comServer:
 		command += CommandFlags.COM_SERVER
 		if install:
-			command += f" {COM_CLS_CHANNEL_NAMES_VALUE_BRAILLE} {COM_CLS_CHANNEL_NAMES_VALUE_SPEECH}"
+			command += (
+				f" {COM_CLS_CHANNEL_NAMES_VALUE_BRAILLE}"
+				f" {COM_CLS_CHANNEL_NAMES_VALUE_SPEECH}"
+				f" {COM_CLS_CHANNEL_NAMES_VALUE_A11Y}"
+			)
 	cmdLine = ["/s", f'/i:"{command}"', "/n"]
 	if not install:
 		cmdLine.append("/u")

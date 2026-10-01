@@ -32,6 +32,7 @@ addon: addonHandler.Addon = addonHandler.getCodeAddon()
 
 if typing.TYPE_CHECKING:
 	from ...lib import (
+		a11y,
 		configuration,
 		driver,
 		namedPipe,
@@ -40,6 +41,7 @@ if typing.TYPE_CHECKING:
 		rdPipe,
 	)
 else:
+	a11y = addon.loadModule("lib.a11y")
 	configuration = addon.loadModule("lib.configuration")
 	driver = addon.loadModule("lib.driver")
 	namedPipe = addon.loadModule("lib.namedPipe")
@@ -125,7 +127,7 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._ioThread = ioThread.IoThread()
 		self._ioThread.start()
 		wx.CallAfter(self._registerRdPipeInRegistry)
-		self._handlers: dict[str, handlers.RemoteHandler] = {}
+		self._handlers: dict[str, handlers.RemoteHandler | handlers.RemoteA11yHandler] = {}
 		self._detachedPipeNames: set[str] = set()
 		self._failedPipeNames: set[str] = set()
 		self._pipeWatcher = directoryChanges.DirectoryWatcher(
@@ -197,6 +199,14 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 			),
 		):
 			HandlerClass = handlers.RemoteSpeechHandler
+		elif fnmatch(
+			fileName,
+			namedPipe.RD_PIPE_GLOB_PATTERN.replace(
+				"*",
+				f"{a11y.CHANNEL_NAME.removeprefix('NVDA-')}*",
+			),
+		):
+			HandlerClass = handlers.RemoteA11yHandler
 		else:
 			raise RuntimeError(f"Unknown named pipe: {fileName}")
 		log.debug(f"Creating {HandlerClass.__name__} for {fileName!r}")

@@ -3,10 +3,13 @@
 # License: GNU General Public License version 2.0 or later
 
 from ._remoteHandler import RemoteHandler
+from .remoteA11yHandler import RemoteA11yHandler, RemoteA11yObject
 from .remoteBrailleHandler import RemoteBrailleHandler
 from .remoteSpeechHandler import RemoteSpeechHandler
 
 __all__ = [
+	"RemoteA11yHandler",
+	"RemoteA11yObject",
 	"RemoteBrailleHandler",
 	"RemoteHandler",
 	"RemoteSpeechHandler",
