@@ -198,9 +198,8 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 	def test_invalid_action_index_is_rejected(self):
 		obj = self._obj(self._node(role="push button", actionNames=("click",)))
 		for index in (-1, 1, True):
-			with self.subTest(index=index):
-				with self.assertRaises(IndexError):
-					obj.doAction(index)
+			with self.subTest(index=index), self.assertRaises(IndexError):
+				obj.doAction(index)
 
 	def test_semantic_properties_are_exposed_to_nvda(self):
 		parent = self._obj(self._node(role="dialog", name="Settings"))

@@ -88,10 +88,7 @@ def _decodeActionNames(value: Any) -> tuple[str, ...]:
 		return ()
 	if not isinstance(value, list) or len(value) > MAX_ACTIONS:
 		raise ValueError("actions must be a bounded list")
-	return tuple(
-		_boundedString(item, limit=MAX_ACTION_NAME_CHARS, field="action name")
-		for item in value
-	)
+	return tuple(_boundedString(item, limit=MAX_ACTION_NAME_CHARS, field="action name") for item in value)
 
 
 def _decodeBounds(value: Any) -> tuple[int, int, int, int] | None:

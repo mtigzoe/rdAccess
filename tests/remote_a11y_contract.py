@@ -128,7 +128,8 @@ if __name__ == "__main__":
 	if len(sys.argv) != 6:
 		raise SystemExit(
 			"usage: python tests/remote_a11y_contract.py "
-			"<fixture.json> <role-matrix.json> <state-matrix.json> <navigation-fixture.json> <action-fixture.json>",
+			"<fixture.json> <role-matrix.json> <state-matrix.json> "
+			"<navigation-fixture.json> <action-fixture.json>",
 		)
 	sys.argv_fixture = sys.argv[1]
 	sys.argv_role_matrix = sys.argv[2]
