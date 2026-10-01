@@ -64,7 +64,7 @@ _STATE_MAP = {
 
 class RemoteA11yObject(NVDAObjects.NVDAObject):
 	@classmethod
-	def findBestAPIClass(cls, _kwargs, _relation=None):
+	def findBestAPIClass(cls, kwargs, relation=None):  # noqa: ARG003
 		return cls
 
 	def __init__(
