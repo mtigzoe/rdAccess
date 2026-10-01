@@ -20,6 +20,8 @@ MAX_VALUE_CHARS: Final[int] = 8192
 MAX_ROLE_CHARS: Final[int] = 128
 MAX_STATES: Final[int] = 64
 MAX_STATE_CHARS: Final[int] = 64
+MAX_ACTIONS: Final[int] = 32
+MAX_ACTION_NAME_CHARS: Final[int] = 256
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,7 @@ class A11yNode:
 	nodeId: str
 	parentId: str | None
 	childIds: tuple[str, ...]
+	actionNames: tuple[str, ...]
 	name: str
 	role: str
 	description: str
@@ -80,6 +83,17 @@ def _decodeIdList(value: Any, *, field: str) -> tuple[str, ...]:
 	return result
 
 
+def _decodeActionNames(value: Any) -> tuple[str, ...]:
+	if value is None:
+		return ()
+	if not isinstance(value, list) or len(value) > MAX_ACTIONS:
+		raise ValueError("actions must be a bounded list")
+	return tuple(
+		_boundedString(item, limit=MAX_ACTION_NAME_CHARS, field="action name")
+		for item in value
+	)
+
+
 def _decodeBounds(value: Any) -> tuple[int, int, int, int] | None:
 	if value is None:
 		return None
@@ -110,6 +124,7 @@ def _decodeNode(value: Any) -> A11yNode:
 		nodeId=typing.cast(str, _decodeId(value.get("id"), field="object id")),
 		parentId=_decodeId(value.get("parent_id"), field="parent id", allowNone=True),
 		childIds=_decodeIdList(value.get("child_ids"), field="child ids"),
+		actionNames=_decodeActionNames(value.get("actions")),
 		name=_boundedString(value.get("name", ""), limit=MAX_NAME_CHARS, field="name"),
 		role=_boundedString(value.get("role", ""), limit=MAX_ROLE_CHARS, field="role").strip().lower(),
 		description=_boundedString(
