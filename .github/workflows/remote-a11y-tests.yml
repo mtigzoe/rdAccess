@@ -1,0 +1,49 @@
+name: Remote A11Y prototype tests
+
+on:
+  pull_request:
+    paths:
+      - "addon/lib/a11y.py"
+      - "addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py"
+      - "tests/test_a11y.py"
+      - "tests/remote_a11y_contract.py"
+      - ".github/workflows/remote-a11y-tests.yml"
+  push:
+    branches:
+      - "feature/remote-a11y-objects"
+    paths:
+      - "addon/lib/a11y.py"
+      - "addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py"
+      - "tests/test_a11y.py"
+      - "tests/remote_a11y_contract.py"
+      - ".github/workflows/remote-a11y-tests.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout rdAccess
+        uses: actions/checkout@v4
+      - name: Checkout Linux producer
+        uses: actions/checkout@v4
+        with:
+          repository: mtigzoe/linux-rdaccess
+          ref: feature/remote-a11y-objects
+          path: linux-rdaccess
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run semantic protocol unit tests
+        env:
+          PYTHONPATH: addon
+        run: |
+          python tests/test_a11y.py -v
+      - name: Generate Linux semantic fixtures
+        run: |
+          cd linux-rdaccess
+          python tools/generate_remote_a11y_fixture.py > ../linux-a11y-fixture.json
+          python tools/generate_remote_a11y_role_matrix.py > ../linux-a11y-role-matrix.json
+          python tools/generate_remote_a11y_state_matrix.py > ../linux-a11y-state-matrix.json
+      - name: Verify Linux to rdAccess semantic contract
+        run: |
+          python tests/remote_a11y_contract.py linux-a11y-fixture.json linux-a11y-role-matrix.json linux-a11y-state-matrix.json

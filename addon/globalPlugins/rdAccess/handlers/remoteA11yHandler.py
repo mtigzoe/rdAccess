@@ -1,0 +1,205 @@
+# RDAccess: Remote Desktop Accessibility for NVDA
+# Copyright 2026
+# License: GNU General Public License version 2.0 or later
+
+from __future__ import annotations
+
+import typing
+
+import addonHandler
+import api
+import controlTypes
+import eventHandler
+import NVDAObjects
+import queueHandler
+from extensionPoints import AccumulatingDecider
+from hwIo.ioThread import IoThread
+from logHandler import log
+
+if typing.TYPE_CHECKING:
+	from ....lib import a11y, namedPipe
+else:
+	addon: addonHandler.Addon = addonHandler.getCodeAddon()
+	a11y = addon.loadModule("lib.a11y")
+	namedPipe = addon.loadModule("lib.namedPipe")
+
+
+_ROLE_MAP = {
+	"application": controlTypes.Role.APPLICATION,
+	"check box": controlTypes.Role.CHECKBOX,
+	"combo box": controlTypes.Role.COMBOBOX,
+	"dialog": controlTypes.Role.DIALOG,
+	"heading": controlTypes.Role.HEADING,
+	"label": controlTypes.Role.LABEL,
+	"link": controlTypes.Role.LINK,
+	"list": controlTypes.Role.LIST,
+	"list item": controlTypes.Role.LISTITEM,
+	"menu item": controlTypes.Role.MENUITEM,
+	"page tab": controlTypes.Role.TAB,
+	"page tab list": controlTypes.Role.TABCONTROL,
+	"paragraph": controlTypes.Role.PARAGRAPH,
+	"progress bar": controlTypes.Role.PROGRESSBAR,
+	"push button": controlTypes.Role.BUTTON,
+	"radio button": controlTypes.Role.RADIOBUTTON,
+	"slider": controlTypes.Role.SLIDER,
+	"table": controlTypes.Role.TABLE,
+	"table cell": controlTypes.Role.TABLECELL,
+	"terminal": controlTypes.Role.TERMINAL,
+	"text": controlTypes.Role.EDITABLETEXT,
+	"tree": controlTypes.Role.TREEVIEW,
+	"tree item": controlTypes.Role.TREEVIEWITEM,
+	"window": controlTypes.Role.WINDOW,
+}
+
+_STATE_MAP = {
+	"checked": controlTypes.State.CHECKED,
+	"collapsed": controlTypes.State.COLLAPSED,
+	"expanded": controlTypes.State.EXPANDED,
+	"focusable": controlTypes.State.FOCUSABLE,
+	"focused": controlTypes.State.FOCUSED,
+	"half checked": controlTypes.State.HALFCHECKED,
+	"read only": controlTypes.State.READONLY,
+	"selected": controlTypes.State.SELECTED,
+}
+
+
+class RemoteA11yObject(NVDAObjects.NVDAObject):
+	@classmethod
+	def findBestAPIClass(cls, kwargs, relation=None):  # noqa: ARG003
+		return cls
+
+	def __init__(
+		self,
+		*,
+		processID: int,
+		node: a11y.A11yNode,
+		parentObject: NVDAObjects.NVDAObject | None,
+	):
+		super().__init__()
+		self._remoteProcessID = processID
+		self._node = node
+		self._parentObject = parentObject
+		self.remoteBounds = node.bounds
+
+	def _get_processID(self) -> int:
+		return self._remoteProcessID
+
+	def _get_name(self) -> str:
+		return self._node.name
+
+	def _get_description(self) -> str:
+		return self._node.description
+
+	def _get_value(self) -> str:
+		return self._node.value
+
+	def _get_role(self) -> controlTypes.Role:
+		return _ROLE_MAP.get(self._node.role, controlTypes.Role.UNKNOWN)
+
+	def _get_roleText(self) -> str | None:
+		if self.role is controlTypes.Role.UNKNOWN and self._node.role:
+			return self._node.role
+		return None
+
+	def _get_states(self) -> set[controlTypes.State]:
+		return {_STATE_MAP[state] for state in self._node.states if state in _STATE_MAP}
+
+	def _get_parent(self) -> NVDAObjects.NVDAObject | None:
+		return self._parentObject
+
+	def _get_location(self):
+		# Linux screen coordinates are not Windows desktop coordinates.
+		return None
+
+
+class RemoteA11yHandler:
+	def __init__(self, ioThread: IoThread, pipeName: str):
+		self.decide_remoteDisconnect = AccumulatingDecider(defaultDecision=False)
+		self._receiver = a11y.A11ySessionDecoder()
+		self._hostObject: NVDAObjects.NVDAObject | None = None
+		self._objects: dict[str, RemoteA11yObject] = {}
+		self._driver = None
+		self._dev = namedPipe.NamedPipeClient(
+			pipeName=pipeName,
+			onReceive=self._onReceive,
+			onReadError=self._onReadError,
+			ioThread=ioThread,
+		)
+
+	@property
+	def _remoteProcessHasFocus(self) -> bool:
+		focus = api.getFocusObject()
+		if isinstance(focus, RemoteA11yObject):
+			return True
+		return focus.processID in (
+			self._dev.pipeProcessId,
+			self._dev.pipeParentProcessId,
+		)
+
+	def _onReceive(self, data: bytes) -> None:
+		for message in self._receiver.feed(data):
+			if isinstance(message, a11y.ProtocolVersionMessage):
+				log.debug(
+					"Remote accessibility protocol v%d on %s",
+					message.version,
+					message.channel,
+				)
+				continue
+			queueHandler.queueFunction(
+				queueHandler.eventQueue,
+				self._handleFocusOnMainThread,
+				message,
+			)
+
+	def _handleFocusOnMainThread(self, message: a11y.FocusMessage) -> None:
+		processID = self._dev.pipeProcessId or 0
+		nodes = {node.nodeId: node for node in message.objects}
+		objects: dict[str, RemoteA11yObject] = {}
+
+		def buildObject(nodeId: str) -> RemoteA11yObject:
+			existing = objects.get(nodeId)
+			if existing is not None:
+				return existing
+			node = nodes[nodeId]
+			parentObject: NVDAObjects.NVDAObject | None = (
+				self._hostObject if node.parentId is None else buildObject(node.parentId)
+			)
+			obj = RemoteA11yObject(
+				processID=processID,
+				node=node,
+				parentObject=parentObject,
+			)
+			objects[nodeId] = obj
+			return obj
+
+		try:
+			focus = buildObject(message.focusId)
+		except (KeyError, RecursionError):
+			log.debugWarning("Invalid remote accessibility ancestry", exc_info=True)
+			return
+		self._objects = objects
+		log.debug(
+			"Remote accessibility focus: id=%s name=%r role=%r depth=%d",
+			message.focusId,
+			focus.name,
+			focus.role,
+			len(objects),
+		)
+		eventHandler.executeEvent("gainFocus", focus)
+
+	def event_gainFocus(self, obj: NVDAObjects.NVDAObject) -> None:
+		if isinstance(obj, RemoteA11yObject):
+			return
+		if obj.processID in (self._dev.pipeProcessId, self._dev.pipeParentProcessId):
+			self._hostObject = obj
+
+	def _handleDriverChanged(self, _driver) -> None:
+		# Semantic objects do not mirror synth or braille driver settings.
+		return
+
+	def _onReadError(self, error: int) -> bool:
+		return self.decide_remoteDisconnect.decide(handler=self, error=error)
+
+	def terminate(self) -> None:
+		self._objects.clear()
+		self._dev.close()
