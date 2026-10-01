@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import pathlib
@@ -7,14 +8,38 @@ import sys
 import unittest
 
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+HANDLER_PATH = REPO_ROOT / "addon" / "globalPlugins" / "rdAccess" / "handlers" / "remoteA11yHandler.py"
+
+
 def load_a11y_module():
-	module_path = pathlib.Path(__file__).resolve().parents[1] / "addon" / "lib" / "a11y.py"
+	module_path = REPO_ROOT / "addon" / "lib" / "a11y.py"
 	spec = importlib.util.spec_from_file_location("rdaccess_a11y_contract", module_path)
 	assert spec is not None and spec.loader is not None
 	module = importlib.util.module_from_spec(spec)
 	sys.modules[spec.name] = module
 	spec.loader.exec_module(module)
 	return module
+
+
+def load_mapping(name: str) -> dict[str, str]:
+	tree = ast.parse(HANDLER_PATH.read_text(encoding="utf-8"), filename=str(HANDLER_PATH))
+	for node in tree.body:
+		if not isinstance(node, ast.Assign):
+			continue
+		if not any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+			continue
+		if not isinstance(node.value, ast.Dict):
+			raise AssertionError(f"{name} must be a dictionary literal")
+		mapping: dict[str, str] = {}
+		for key, value in zip(node.value.keys, node.value.values, strict=True):
+			if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+				raise AssertionError(f"{name} contains a non-string key")
+			if not isinstance(value, ast.Attribute):
+				raise AssertionError(f"{name}[{key.value!r}] is not an enum attribute")
+			mapping[key.value] = value.attr
+		return mapping
+	raise AssertionError(f"{name} was not found in {HANDLER_PATH}")
 
 
 a11y = load_a11y_module()
@@ -36,10 +61,37 @@ class CrossRepoA11yContractTests(unittest.TestCase):
 		self.assertIsNone(by_name["Test App"].parentId)
 		self.assertEqual(message.focusId, by_name["Save"].nodeId)
 
+	def test_linux_role_matrix_maps_to_expected_nvda_roles(self):
+		matrix = json.loads(pathlib.Path(sys.argv_role_matrix).read_text(encoding="utf-8"))
+		role_map = load_mapping("_ROLE_MAP")
+		for case in matrix:
+			message = a11y.decodeMessage(case["message"])
+			focus = next(node for node in message.objects if node.nodeId == message.focusId)
+			with self.subTest(role=focus.role, name=focus.name):
+				self.assertIn(focus.role, role_map)
+				self.assertEqual(role_map[focus.role], case["expected_nvda_role"])
+
+	def test_core_linux_states_have_nvda_mappings(self):
+		state_map = load_mapping("_STATE_MAP")
+		expected = {
+			"checked": "CHECKED",
+			"collapsed": "COLLAPSED",
+			"expanded": "EXPANDED",
+			"focusable": "FOCUSABLE",
+			"focused": "FOCUSED",
+			"half checked": "HALFCHECKED",
+			"read only": "READONLY",
+			"selected": "SELECTED",
+		}
+		self.assertEqual(state_map, expected)
+
 
 if __name__ == "__main__":
-	if len(sys.argv) != 2:
-		raise SystemExit("usage: python tests/remote_a11y_contract.py <fixture.json>")
+	if len(sys.argv) != 3:
+		raise SystemExit(
+			"usage: python tests/remote_a11y_contract.py <fixture.json> <role-matrix.json>",
+		)
 	sys.argv_fixture = sys.argv[1]
+	sys.argv_role_matrix = sys.argv[2]
 	sys.argv = [sys.argv[0]]
 	unittest.main(verbosity=2)
