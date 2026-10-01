@@ -43,6 +43,7 @@ jobs:
           cd linux-rdaccess
           python tools/generate_remote_a11y_fixture.py > ../linux-a11y-fixture.json
           python tools/generate_remote_a11y_role_matrix.py > ../linux-a11y-role-matrix.json
+          python tools/generate_remote_a11y_state_matrix.py > ../linux-a11y-state-matrix.json
       - name: Verify Linux to rdAccess semantic contract
         run: |
-          python tests/remote_a11y_contract.py linux-a11y-fixture.json linux-a11y-role-matrix.json
+          python tests/remote_a11y_contract.py linux-a11y-fixture.json linux-a11y-role-matrix.json linux-a11y-state-matrix.json
