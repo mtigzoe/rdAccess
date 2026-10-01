@@ -198,7 +198,7 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 
 	def tearDown(self):
 		self.handler.terminate()
-		_stubs.queuedFunctions.clear()
+		queueHandler.queuedFunctions.clear()
 
 	def _focus_message(self):
 		return {
@@ -269,7 +269,7 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 
 	def test_focus_before_protocol_handshake_is_ignored(self):
 		self.handler._onReceive(json.dumps(self._focus_message()).encode() + b"\n")
-		_stubs.pumpAll()
+		queueHandler.pumpAll()
 		self.assertEqual(self.eventHandler.events, [])
 
 	def test_unknown_linux_role_is_preserved_as_role_text(self):
@@ -281,7 +281,7 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 			+ b"\n"
 		)
 		self.handler._onReceive(wire)
-		_stubs.pumpAll()
+		queueHandler.pumpAll()
 		focus = self.eventHandler.events[0][1]
 		self.assertEqual(focus.role, Role.UNKNOWN)
 		self.assertEqual(focus.roleText, "custom widget")
