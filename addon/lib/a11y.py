@@ -74,10 +74,7 @@ def _decodeIdList(value: Any, *, field: str) -> tuple[str, ...]:
 		return ()
 	if not isinstance(value, list) or len(value) > MAX_OBJECTS:
 		raise ValueError(f"{field} must be a bounded list")
-	result = tuple(
-		typing.cast(str, _decodeId(item, field=f"{field} item"))
-		for item in value
-	)
+	result = tuple(typing.cast(str, _decodeId(item, field=f"{field} item")) for item in value)
 	if len(set(result)) != len(result):
 		raise ValueError(f"{field} contains duplicate ids")
 	return result

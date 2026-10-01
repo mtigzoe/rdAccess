@@ -74,7 +74,7 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 		processID: int,
 		node: a11y.A11yNode,
 		parentObject: NVDAObjects.NVDAObject | None,
-		objectMap: dict[str, "RemoteA11yObject"],
+		objectMap: dict[str, RemoteA11yObject],
 	):
 		super().__init__()
 		self._remoteProcessID = processID
