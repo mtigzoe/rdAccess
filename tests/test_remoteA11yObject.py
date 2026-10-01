@@ -83,10 +83,12 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 		name: str = "Test",
 		value: str = "",
 		description: str = "",
+		childIds: tuple[str, ...] = (),
 	):
 		return A11yNode(
 			nodeId="1",
 			parentId=None,
+			childIds=childIds,
 			name=name,
 			role=role,
 			description=description,
@@ -96,11 +98,15 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 		)
 
 	def _obj(self, node: A11yNode):
-		return handler.RemoteA11yObject(
+		objectMap = {}
+		obj = handler.RemoteA11yObject(
 			processID=42,
 			node=node,
 			parentObject=None,
+			objectMap=objectMap,
 		)
+		objectMap[node.nodeId] = obj
+		return obj
 
 	def test_common_atspi_roles_map_to_real_nvda_roles(self):
 		cases = {
@@ -171,6 +177,7 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 
 	def test_semantic_properties_are_exposed_to_nvda(self):
 		parent = self._obj(self._node(role="dialog", name="Settings"))
+		objectMap = {}
 		obj = handler.RemoteA11yObject(
 			processID=987,
 			node=self._node(
@@ -180,7 +187,9 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 				value="ready",
 			),
 			parentObject=parent,
+			objectMap=objectMap,
 		)
+		objectMap[obj._node.nodeId] = obj
 		self.assertEqual(obj._get_processID(), 987)
 		self.assertEqual(obj._get_name(), "Save")
 		self.assertEqual(obj._get_description(), "Save changes")

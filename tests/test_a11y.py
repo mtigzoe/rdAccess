@@ -62,6 +62,7 @@ class A11yMessageTests(unittest.TestCase):
 		self.assertEqual(message.focusId, "button")
 		self.assertEqual([node.nodeId for node in message.objects], ["button", "dialog", "app"])
 		self.assertEqual(message.objects[0].parentId, "dialog")
+		self.assertEqual(message.objects[0].childIds, ())
 		self.assertEqual(message.objects[0].role, "push button")
 		self.assertEqual(message.objects[0].states, frozenset({"focused", "focusable"}))
 
@@ -74,6 +75,30 @@ class A11yMessageTests(unittest.TestCase):
 	def test_unknown_parent_is_rejected(self):
 		raw = self._focusMessage()
 		raw["objects"][0]["parent_id"] = "missing"
+		with self.assertRaises(ValueError):
+			decodeMessage(raw)
+
+	def test_child_ids_are_decoded(self):
+		raw = self._focusMessage()
+		raw["objects"][1]["child_ids"] = ["button"]
+		message = decodeMessage(raw)
+		self.assertEqual(message.objects[1].childIds, ("button",))
+
+	def test_unknown_child_is_rejected(self):
+		raw = self._focusMessage()
+		raw["objects"][1]["child_ids"] = ["missing"]
+		with self.assertRaises(ValueError):
+			decodeMessage(raw)
+
+	def test_child_must_point_back_to_declared_parent(self):
+		raw = self._focusMessage()
+		raw["objects"][2]["child_ids"] = ["button"]
+		with self.assertRaises(ValueError):
+			decodeMessage(raw)
+
+	def test_duplicate_child_id_is_rejected(self):
+		raw = self._focusMessage()
+		raw["objects"][1]["child_ids"] = ["button", "button"]
 		with self.assertRaises(ValueError):
 			decodeMessage(raw)
 

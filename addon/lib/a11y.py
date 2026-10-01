@@ -26,6 +26,7 @@ MAX_STATE_CHARS: Final[int] = 64
 class A11yNode:
 	nodeId: str
 	parentId: str | None
+	childIds: tuple[str, ...]
 	name: str
 	role: str
 	description: str
@@ -68,6 +69,17 @@ def _decodeId(value: Any, *, field: str, allowNone: bool = False) -> str | None:
 	return result
 
 
+def _decodeIdList(value: Any, *, field: str) -> tuple[str, ...]:
+	if value is None:
+		return ()
+	if not isinstance(value, list) or len(value) > MAX_OBJECTS:
+		raise ValueError(f"{field} must be a bounded list")
+	result = tuple(typing.cast(str, _decodeId(item, field=f"{field} item")) for item in value)
+	if len(set(result)) != len(result):
+		raise ValueError(f"{field} contains duplicate ids")
+	return result
+
+
 def _decodeBounds(value: Any) -> tuple[int, int, int, int] | None:
 	if value is None:
 		return None
@@ -97,6 +109,7 @@ def _decodeNode(value: Any) -> A11yNode:
 	return A11yNode(
 		nodeId=typing.cast(str, _decodeId(value.get("id"), field="object id")),
 		parentId=_decodeId(value.get("parent_id"), field="parent id", allowNone=True),
+		childIds=_decodeIdList(value.get("child_ids"), field="child ids"),
 		name=_boundedString(value.get("name", ""), limit=MAX_NAME_CHARS, field="name"),
 		role=_boundedString(value.get("role", ""), limit=MAX_ROLE_CHARS, field="role").strip().lower(),
 		description=_boundedString(
@@ -135,9 +148,15 @@ def decodeMessage(message: Any) -> A11yMessage:
 		raise ValueError("duplicate object id")
 	if focusId not in ids:
 		raise ValueError("focus id does not identify an object in this snapshot")
+	nodesById = {node.nodeId: node for node in objects}
 	for node in objects:
 		if node.parentId is not None and node.parentId not in ids:
 			raise ValueError("parent id does not identify an object in this snapshot")
+		for childId in node.childIds:
+			if childId not in ids:
+				raise ValueError("child id does not identify an object in this snapshot")
+			if nodesById[childId].parentId != node.nodeId:
+				raise ValueError("child id does not identify a child of this object")
 	return FocusMessage(focusId=focusId, objects=objects)
 
 

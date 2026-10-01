@@ -99,6 +99,26 @@ class FakeNVDAObject:
 		getter = getattr(self, "_get_parent", None)
 		return getter() if getter else None
 
+	@property
+	def firstChild(self):
+		getter = getattr(self, "_get_firstChild", None)
+		return getter() if getter else None
+
+	@property
+	def lastChild(self):
+		getter = getattr(self, "_get_lastChild", None)
+		return getter() if getter else None
+
+	@property
+	def previous(self):
+		getter = getattr(self, "_get_previous", None)
+		return getter() if getter else None
+
+	@property
+	def next(self):
+		getter = getattr(self, "_get_next", None)
+		return getter() if getter else None
+
 
 class HostObject(FakeNVDAObject):
 	def __init__(self, process_id):
@@ -206,6 +226,7 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 				{
 					"id": "save",
 					"parent_id": "dialog",
+					"child_ids": ["hint"],
 					"name": "Save",
 					"role": "push button",
 					"description": "Save changes",
@@ -214,8 +235,42 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 					"bounds": [10, 20, 80, 30],
 				},
 				{
+					"id": "cancel",
+					"parent_id": "dialog",
+					"child_ids": [],
+					"name": "Cancel",
+					"role": "push button",
+					"description": "",
+					"value": "",
+					"states": ["focusable"],
+					"bounds": [100, 20, 80, 30],
+				},
+				{
+					"id": "help",
+					"parent_id": "dialog",
+					"child_ids": [],
+					"name": "Help",
+					"role": "push button",
+					"description": "",
+					"value": "",
+					"states": ["focusable"],
+					"bounds": [190, 20, 80, 30],
+				},
+				{
+					"id": "hint",
+					"parent_id": "save",
+					"child_ids": [],
+					"name": "Keyboard shortcut",
+					"role": "label",
+					"description": "",
+					"value": "",
+					"states": [],
+					"bounds": None,
+				},
+				{
 					"id": "dialog",
 					"parent_id": "app",
+					"child_ids": ["cancel", "save", "help"],
 					"name": "Settings",
 					"role": "dialog",
 					"description": "",
@@ -226,6 +281,7 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 				{
 					"id": "app",
 					"parent_id": None,
+					"child_ids": ["dialog"],
 					"name": "Test App",
 					"role": "application",
 					"description": "",
@@ -264,6 +320,25 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 		self.assertEqual(focus.parent.parent.name, "Test App")
 		self.assertEqual(focus.parent.parent.role, Role.APPLICATION)
 		self.assertIs(focus.parent.parent.parent, self.handler._hostObject)
+
+	def test_focus_object_exposes_parent_child_and_sibling_navigation(self):
+		wire = (
+			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
+			+ json.dumps(self._focus_message()).encode()
+			+ b"\n"
+		)
+		self.handler._onReceive(wire)
+		queueHandler.pumpAll()
+
+		focus = self.eventHandler.events[0][1]
+		self.assertEqual(focus.previous.name, "Cancel")
+		self.assertEqual(focus.next.name, "Help")
+		self.assertEqual(focus.firstChild.name, "Keyboard shortcut")
+		self.assertIs(focus.firstChild, focus.lastChild)
+		self.assertEqual(focus.parent.firstChild.name, "Cancel")
+		self.assertEqual(focus.parent.lastChild.name, "Help")
+		self.assertIsNone(focus.previous.previous)
+		self.assertIsNone(focus.next.next)
 
 	def test_focus_before_protocol_handshake_is_ignored(self):
 		self.handler._onReceive(json.dumps(self._focus_message()).encode() + b"\n")
