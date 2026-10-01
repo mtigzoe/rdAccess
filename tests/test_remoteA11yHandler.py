@@ -52,10 +52,8 @@ class State(enum.Enum):
 
 
 class FakeNVDAObject:
-	processID = 0
-
 	@classmethod
-	def findBestAPIClass(cls, kwargs, relation=None):
+	def findBestAPIClass(cls, kwargs, relation=None):  # noqa: ARG003
 		return cls
 
 	def __init__(self, *args, **kwargs):
