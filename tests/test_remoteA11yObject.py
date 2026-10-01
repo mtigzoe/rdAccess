@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import builtins
+import gettext
 import importlib
 import importlib.util
 import pathlib
@@ -9,10 +11,11 @@ import unittest
 
 # Another handler test intentionally installs a fake controlTypes module. Remove
 # it here so this test validates against the real NVDA source checkout.
+# NVDA installs translation helpers in builtins during application startup.
+builtins.pgettext = gettext.pgettext
 sys.modules.pop("controlTypes", None)
 controlTypes = importlib.import_module("controlTypes")
-
-from lib.a11y import A11yNode
+A11yNode = importlib.import_module("lib.a11y").A11yNode
 
 
 class _FakeNVDAObject:
@@ -27,7 +30,7 @@ def _load_handler_module():
 	sys.modules["api"] = api
 
 	eventHandler = types.ModuleType("eventHandler")
-	eventHandler.executeEvent = lambda *args, **kwargs: None
+	eventHandler.executeEvent = lambda *_args, **_kwargs: None
 	sys.modules["eventHandler"] = eventHandler
 
 	nvdaObjects = types.ModuleType("NVDAObjects")
