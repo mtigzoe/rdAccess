@@ -74,11 +74,13 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 		processID: int,
 		node: a11y.A11yNode,
 		parentObject: NVDAObjects.NVDAObject | None,
+		objectMap: dict[str, "RemoteA11yObject"],
 	):
 		super().__init__()
 		self._remoteProcessID = processID
 		self._node = node
 		self._parentObject = parentObject
+		self._objectMap = objectMap
 		self.remoteBounds = node.bounds
 
 	def _get_processID(self) -> int:
@@ -106,6 +108,33 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 
 	def _get_parent(self) -> NVDAObjects.NVDAObject | None:
 		return self._parentObject
+
+	def _get_firstChild(self) -> NVDAObjects.NVDAObject | None:
+		if not self._node.childIds:
+			return None
+		return self._objectMap.get(self._node.childIds[0])
+
+	def _get_lastChild(self) -> NVDAObjects.NVDAObject | None:
+		if not self._node.childIds:
+			return None
+		return self._objectMap.get(self._node.childIds[-1])
+
+	def _sibling(self, offset: int) -> NVDAObjects.NVDAObject | None:
+		parent = self._parentObject
+		if not isinstance(parent, RemoteA11yObject):
+			return None
+		try:
+			index = parent._node.childIds.index(self._node.nodeId)
+			targetId = parent._node.childIds[index + offset]
+		except (ValueError, IndexError):
+			return None
+		return self._objectMap.get(targetId)
+
+	def _get_previous(self) -> NVDAObjects.NVDAObject | None:
+		return self._sibling(-1)
+
+	def _get_next(self) -> NVDAObjects.NVDAObject | None:
+		return self._sibling(1)
 
 	def _get_location(self):
 		# Linux screen coordinates are not Windows desktop coordinates.
@@ -168,12 +197,15 @@ class RemoteA11yHandler:
 				processID=processID,
 				node=node,
 				parentObject=parentObject,
+				objectMap=objects,
 			)
 			objects[nodeId] = obj
 			return obj
 
 		try:
 			focus = buildObject(message.focusId)
+			for nodeId in nodes:
+				buildObject(nodeId)
 		except (KeyError, RecursionError):
 			log.debugWarning("Invalid remote accessibility ancestry", exc_info=True)
 			return
