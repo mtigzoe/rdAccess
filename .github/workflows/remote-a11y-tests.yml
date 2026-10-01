@@ -12,6 +12,7 @@ on:
     branches:
       - "feature/remote-a11y-objects"
       - "feature/remote-a11y-navigation"
+      - "feature/remote-a11y-actions"
     paths:
       - "addon/lib/a11y.py"
       - "addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py"
@@ -29,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mtigzoe/linux-rdaccess
-          ref: feature/remote-a11y-navigation
+          ref: feature/remote-a11y-actions
           path: linux-rdaccess
       - uses: actions/setup-python@v5
         with:
@@ -46,6 +47,25 @@ jobs:
           python tools/generate_remote_a11y_role_matrix.py > ../linux-a11y-role-matrix.json
           python tools/generate_remote_a11y_state_matrix.py > ../linux-a11y-state-matrix.json
           python tools/generate_remote_a11y_navigation_fixture.py > ../linux-a11y-navigation.json
+          python tools/generate_remote_a11y_action_fixture.py > ../linux-a11y-action.json
       - name: Verify Linux to rdAccess semantic contract
         run: |
-          python tests/remote_a11y_contract.py linux-a11y-fixture.json linux-a11y-role-matrix.json linux-a11y-state-matrix.json linux-a11y-navigation.json
+          python tests/remote_a11y_contract.py linux-a11y-fixture.json linux-a11y-role-matrix.json linux-a11y-state-matrix.json linux-a11y-navigation.json linux-a11y-action.json
+
+      - name: Verify rdAccess action request is accepted by Linux
+        shell: bash
+        env:
+          PYTHONPATH: addon
+        run: |
+          python - <<'PY' > rdaccess-action.json
+          from lib.a11y import encodeActionRequest
+          import sys
+          sys.stdout.buffer.write(encodeActionRequest("remote-button", 1))
+          PY
+          python linux-rdaccess/tools/decode_remote_a11y_action.py < rdaccess-action.json > decoded-action.json
+          python - <<'PY'
+          import json
+          with open("decoded-action.json", encoding="utf-8") as f:
+              decoded = json.load(f)
+          assert decoded == {"object_id": "remote-button", "action_index": 1}
+          PY
