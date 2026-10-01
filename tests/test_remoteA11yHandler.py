@@ -9,7 +9,7 @@ import sys
 import types
 import unittest
 
-from tests import _stubs
+import queueHandler
 
 
 class Role(enum.Enum):
@@ -192,7 +192,7 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 	def setUp(self):
 		self.eventHandler.events.clear()
 		self.api.focusObject = HostObject(4242)
-		_stubs.queuedFunctions.clear()
+		queueHandler.queuedFunctions.clear()
 		self.handler = self.module.RemoteA11yHandler(None, "test-pipe")
 		self.handler.event_gainFocus(self.api.focusObject)
 
@@ -248,7 +248,7 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 			+ b"\n"
 		)
 		self.handler._onReceive(wire)
-		_stubs.pumpAll()
+		queueHandler.pumpAll()
 
 		self.assertEqual(len(self.eventHandler.events), 1)
 		event_name, focus = self.eventHandler.events[0]
