@@ -1,0 +1,25 @@
+name: Remote A11Y formatter diff
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/remote-a11y-format-diff.yml"
+      - "tests/test_remoteA11yObject.py"
+      - "tests/test_remoteA11yRegistration.py"
+
+jobs:
+  diff:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync
+      - name: Show Ruff formatting diff
+        shell: pwsh
+        run: |
+          $files = @(
+            "tests/test_remoteA11yObject.py",
+            "tests/test_remoteA11yRegistration.py"
+          )
+          uv run ruff format @files
+          git diff -- @files
