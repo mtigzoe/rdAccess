@@ -103,6 +103,12 @@ class CrossRepoA11yContractTests(unittest.TestCase):
 		self.assertEqual(by_name[expected["parent_first_child"]].nodeId, parent.childIds[0])
 		self.assertEqual(by_name[expected["parent_last_child"]].nodeId, parent.childIds[-1])
 
+	def test_linux_action_fixture_preserves_action_names(self):
+		fixture = json.loads(pathlib.Path(sys.argv_action_fixture).read_text(encoding="utf-8"))
+		message = a11y.decodeMessage(fixture["message"])
+		focus = next(node for node in message.objects if node.nodeId == message.focusId)
+		self.assertEqual(list(focus.actionNames), fixture["expected_actions"])
+
 	def test_core_linux_states_have_nvda_mappings(self):
 		state_map = load_mapping("_STATE_MAP")
 		expected = {
@@ -119,14 +125,16 @@ class CrossRepoA11yContractTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-	if len(sys.argv) != 5:
+	if len(sys.argv) != 6:
 		raise SystemExit(
 			"usage: python tests/remote_a11y_contract.py "
-			"<fixture.json> <role-matrix.json> <state-matrix.json> <navigation-fixture.json>",
+			"<fixture.json> <role-matrix.json> <state-matrix.json> "
+			"<navigation-fixture.json> <action-fixture.json>",
 		)
 	sys.argv_fixture = sys.argv[1]
 	sys.argv_role_matrix = sys.argv[2]
 	sys.argv_state_matrix = sys.argv[3]
 	sys.argv_navigation_fixture = sys.argv[4]
+	sys.argv_action_fixture = sys.argv[5]
 	sys.argv = [sys.argv[0]]
 	unittest.main(verbosity=2)

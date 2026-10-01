@@ -75,12 +75,14 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 		node: a11y.A11yNode,
 		parentObject: NVDAObjects.NVDAObject | None,
 		objectMap: dict[str, RemoteA11yObject],
+		actionSender: typing.Callable[[str, int], None],
 	):
 		super().__init__()
 		self._remoteProcessID = processID
 		self._node = node
 		self._parentObject = parentObject
 		self._objectMap = objectMap
+		self._actionSender = actionSender
 		self.remoteBounds = node.bounds
 
 	def _get_processID(self) -> int:
@@ -137,6 +139,23 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 
 	def _get_next(self) -> NVDAObjects.NVDAObject | None:
 		return self._sibling(1)
+
+	def _get_actionCount(self) -> int:
+		return len(self._node.actionNames)
+
+	def _normalizeActionIndex(self, index: int | None) -> int:
+		if index is None:
+			index = 0
+		if type(index) is not int or index < 0 or index >= len(self._node.actionNames):
+			raise IndexError("remote accessibility action index out of range")
+		return index
+
+	def getActionName(self, index=None):
+		return self._node.actionNames[self._normalizeActionIndex(index)]
+
+	def doAction(self, index=None):
+		actionIndex = self._normalizeActionIndex(index)
+		self._actionSender(self._node.nodeId, actionIndex)
 
 	def _get_location(self):
 		# Linux screen coordinates are not Windows desktop coordinates.
@@ -200,6 +219,7 @@ class RemoteA11yHandler:
 				node=node,
 				parentObject=parentObject,
 				objectMap=objects,
+				actionSender=self._sendAction,
 			)
 			objects[nodeId] = obj
 			return obj
@@ -220,6 +240,9 @@ class RemoteA11yHandler:
 			len(objects),
 		)
 		eventHandler.executeEvent("gainFocus", focus)
+
+	def _sendAction(self, objectId: str, actionIndex: int) -> None:
+		self._dev.write(a11y.encodeActionRequest(objectId, actionIndex))
 
 	def event_gainFocus(self, obj: NVDAObjects.NVDAObject) -> None:
 		if isinstance(obj, RemoteA11yObject):

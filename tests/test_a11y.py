@@ -25,6 +25,7 @@ class A11yMessageTests(unittest.TestCase):
 					"role": "Push Button",
 					"description": "Save changes",
 					"value": "",
+					"actions": ["click", "show menu"],
 					"states": ["focused", "focusable"],
 				},
 				{
@@ -63,8 +64,27 @@ class A11yMessageTests(unittest.TestCase):
 		self.assertEqual([node.nodeId for node in message.objects], ["button", "dialog", "app"])
 		self.assertEqual(message.objects[0].parentId, "dialog")
 		self.assertEqual(message.objects[0].childIds, ())
+		self.assertEqual(message.objects[0].actionNames, ("click", "show menu"))
 		self.assertEqual(message.objects[0].role, "push button")
 		self.assertEqual(message.objects[0].states, frozenset({"focused", "focusable"}))
+
+	def test_actions_default_to_empty_for_backward_compatibility(self):
+		raw = self._focusMessage()
+		raw["objects"][0].pop("actions")
+		message = decodeMessage(raw)
+		self.assertEqual(message.objects[0].actionNames, ())
+
+	def test_invalid_action_name_type_is_rejected(self):
+		raw = self._focusMessage()
+		raw["objects"][0]["actions"] = ["click", 1]
+		with self.assertRaises(ValueError):
+			decodeMessage(raw)
+
+	def test_too_many_actions_are_rejected(self):
+		raw = self._focusMessage()
+		raw["objects"][0]["actions"] = [f"action {index}" for index in range(33)]
+		with self.assertRaises(ValueError):
+			decodeMessage(raw)
 
 	def test_missing_focus_target_is_rejected(self):
 		raw = self._focusMessage()

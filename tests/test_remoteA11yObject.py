@@ -84,11 +84,13 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 		value: str = "",
 		description: str = "",
 		childIds: tuple[str, ...] = (),
+		actionNames: tuple[str, ...] = (),
 	):
 		return A11yNode(
 			nodeId="1",
 			parentId=None,
 			childIds=childIds,
+			actionNames=actionNames,
 			name=name,
 			role=role,
 			description=description,
@@ -99,12 +101,15 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 
 	def _obj(self, node: A11yNode):
 		objectMap = {}
+		actions = []
 		obj = handler.RemoteA11yObject(
 			processID=42,
 			node=node,
 			parentObject=None,
 			objectMap=objectMap,
+			actionSender=lambda node_id, index: actions.append((node_id, index)),
 		)
+		obj._testActions = actions
 		objectMap[node.nodeId] = obj
 		return obj
 
@@ -175,9 +180,31 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 			},
 		)
 
+	def test_actions_are_exposed_through_nvda_object_api(self):
+		obj = self._obj(
+			self._node(
+				role="push button",
+				name="More",
+				actionNames=("click", "show menu"),
+			),
+		)
+		self.assertEqual(obj._get_actionCount(), 2)
+		self.assertEqual(obj.getActionName(), "click")
+		self.assertEqual(obj.getActionName(1), "show menu")
+		obj.doAction()
+		obj.doAction(1)
+		self.assertEqual(obj._testActions, [("1", 0), ("1", 1)])
+
+	def test_invalid_action_index_is_rejected(self):
+		obj = self._obj(self._node(role="push button", actionNames=("click",)))
+		for index in (-1, 1, True):
+			with self.subTest(index=index), self.assertRaises(IndexError):
+				obj.doAction(index)
+
 	def test_semantic_properties_are_exposed_to_nvda(self):
 		parent = self._obj(self._node(role="dialog", name="Settings"))
 		objectMap = {}
+		actions = []
 		obj = handler.RemoteA11yObject(
 			processID=987,
 			node=self._node(
@@ -188,6 +215,7 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 			),
 			parentObject=parent,
 			objectMap=objectMap,
+			actionSender=lambda node_id, index: actions.append((node_id, index)),
 		)
 		objectMap[obj._node.nodeId] = obj
 		self.assertEqual(obj._get_processID(), 987)
