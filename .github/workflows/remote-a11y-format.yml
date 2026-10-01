@@ -1,12 +1,7 @@
-name: Format remote A11Y prototype
-
-permissions:
-  contents: write
+name: Remote A11Y format diff
 
 on:
-  push:
-    branches:
-      - "feature/remote-a11y-objects"
+  pull_request:
     paths:
       - ".github/workflows/remote-a11y-format.yml"
       - "addon/lib/a11y.py"
@@ -15,16 +10,14 @@ on:
       - "tests/remote_a11y_contract.py"
 
 jobs:
-  format:
+  diff:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: feature/remote-a11y-objects
       - uses: astral-sh/setup-uv@v7
       - name: Install dependencies
         run: uv sync
-      - name: Apply Ruff fixes and formatting
+      - name: Show Ruff fixes and formatting diff
         shell: pwsh
         run: |
           $files = @(
@@ -35,15 +28,4 @@ jobs:
           )
           uv run ruff check --fix @files
           uv run ruff format @files
-      - name: Commit formatting if needed
-        shell: pwsh
-        run: |
-          if (-not (git status --porcelain)) {
-            Write-Host "No formatting changes needed."
-            exit 0
-          }
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add addon/lib/a11y.py addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py tests/test_a11y.py tests/remote_a11y_contract.py
-          git commit -m "Format remote A11Y prototype"
-          git push
+          git diff -- @files
