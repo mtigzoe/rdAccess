@@ -99,7 +99,8 @@ class CrossRepoA11yContractTests(unittest.TestCase):
 if __name__ == "__main__":
 	if len(sys.argv) != 4:
 		raise SystemExit(
-			"usage: python tests/remote_a11y_contract.py <fixture.json> <role-matrix.json> <state-matrix.json>",
+			"usage: python tests/remote_a11y_contract.py "
+			"<fixture.json> <role-matrix.json> <state-matrix.json>",
 		)
 	sys.argv_fixture = sys.argv[1]
 	sys.argv_role_matrix = sys.argv[2]
