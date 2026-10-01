@@ -70,6 +70,17 @@ class CrossRepoA11yContractTests(unittest.TestCase):
 				self.assertIn(focus.role, role_map)
 				self.assertEqual(role_map[focus.role], case["expected_nvda_role"])
 
+	def test_linux_state_and_value_matrix_maps_to_expected_nvda_semantics(self):
+		matrix = json.loads(pathlib.Path(sys.argv_state_matrix).read_text(encoding="utf-8"))
+		state_map = load_mapping("_STATE_MAP")
+		for case in matrix:
+			message = a11y.decodeMessage(case["message"])
+			focus = next(node for node in message.objects if node.nodeId == message.focusId)
+			mapped_states = sorted(state_map[state] for state in focus.states if state in state_map)
+			with self.subTest(role=focus.role, name=focus.name):
+				self.assertEqual(mapped_states, sorted(case["expected_nvda_states"]))
+				self.assertEqual(focus.value, case["expected_value"])
+
 	def test_core_linux_states_have_nvda_mappings(self):
 		state_map = load_mapping("_STATE_MAP")
 		expected = {
@@ -86,11 +97,12 @@ class CrossRepoA11yContractTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-	if len(sys.argv) != 3:
+	if len(sys.argv) != 4:
 		raise SystemExit(
-			"usage: python tests/remote_a11y_contract.py <fixture.json> <role-matrix.json>",
+			"usage: python tests/remote_a11y_contract.py <fixture.json> <role-matrix.json> <state-matrix.json>",
 		)
 	sys.argv_fixture = sys.argv[1]
 	sys.argv_role_matrix = sys.argv[2]
+	sys.argv_state_matrix = sys.argv[3]
 	sys.argv = [sys.argv[0]]
 	unittest.main(verbosity=2)
