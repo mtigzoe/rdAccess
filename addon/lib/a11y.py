@@ -175,6 +175,24 @@ def decodeMessage(message: Any) -> A11yMessage:
 	return FocusMessage(focusId=focusId, objects=objects)
 
 
+def encodeActionRequest(objectId: str, actionIndex: int) -> bytes:
+	if not isinstance(objectId, str) or not objectId or len(objectId) > MAX_ID_CHARS:
+		raise ValueError("invalid remote accessibility action object id")
+	if type(actionIndex) is not int or actionIndex < 0 or actionIndex >= MAX_ACTIONS:
+		raise ValueError("invalid remote accessibility action index")
+	return (
+		json.dumps(
+			{
+				"type": "a11y_action",
+				"object_id": objectId,
+				"action_index": actionIndex,
+			},
+			separators=(",", ":"),
+		).encode("utf-8")
+		+ b"\n"
+	)
+
+
 class A11yJsonLineReceiver:
 	def __init__(self):
 		self._buffer = bytearray()
