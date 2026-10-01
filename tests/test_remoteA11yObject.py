@@ -7,7 +7,10 @@ import sys
 import types
 import unittest
 
-import controlTypes
+# Another handler test intentionally installs a fake controlTypes module. Remove
+# it here so this test validates against the real NVDA source checkout.
+sys.modules.pop("controlTypes", None)
+controlTypes = importlib.import_module("controlTypes")
 
 from lib.a11y import A11yNode
 
