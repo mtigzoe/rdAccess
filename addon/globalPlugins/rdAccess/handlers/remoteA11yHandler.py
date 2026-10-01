@@ -114,7 +114,7 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 class RemoteA11yHandler:
 	def __init__(self, ioThread: IoThread, pipeName: str):
 		self.decide_remoteDisconnect = AccumulatingDecider(defaultDecision=False)
-		self._receiver = a11y.A11yJsonLineReceiver()
+		self._receiver = a11y.A11ySessionDecoder()
 		self._hostObject: NVDAObjects.NVDAObject | None = None
 		self._objects: dict[str, RemoteA11yObject] = {}
 		self._driver = None
