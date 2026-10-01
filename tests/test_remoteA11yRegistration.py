@@ -26,9 +26,7 @@ class RemoteA11yRegistrationTests(unittest.TestCase):
 
 		tree = ast.parse(source, filename=str(RDPIPE_PATH))
 		dll_install = next(
-			node
-			for node in tree.body
-			if isinstance(node, ast.FunctionDef) and node.name == "dllInstall"
+			node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "dllInstall"
 		)
 		segment = ast.get_source_segment(source, dll_install)
 		assert segment is not None
@@ -44,9 +42,7 @@ class RemoteA11yRegistrationTests(unittest.TestCase):
 		source = _source(PLUGIN_PATH)
 		tree = ast.parse(source, filename=str(PLUGIN_PATH))
 		plugin_class = next(
-			node
-			for node in tree.body
-			if isinstance(node, ast.ClassDef) and node.name == "RDGlobalPlugin"
+			node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "RDGlobalPlugin"
 		)
 		create_handler = next(
 			node
