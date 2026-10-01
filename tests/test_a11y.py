@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from lib.a11y import A11yJsonLineReceiver, FocusMessage, ProtocolVersionMessage, decodeMessage
+from lib.a11y import A11yJsonLineReceiver, A11ySessionDecoder, FocusMessage, ProtocolVersionMessage, decodeMessage
 
 
 class A11yMessageTests(unittest.TestCase):
@@ -129,6 +129,66 @@ class A11yReceiverTests(unittest.TestCase):
 		messages = receiver.feed(b"{not json}\n" + self._line("Good"))
 		self.assertEqual(len(messages), 1)
 		self.assertEqual(messages[0].objects[0].name, "Good")
+
+
+
+class A11ySessionDecoderTests(unittest.TestCase):
+	def _focusLine(self, name: str = "Save") -> bytes:
+		return (
+			json.dumps(
+				{
+					"type": "a11y_focus",
+					"focus_id": "1",
+					"objects": [
+						{
+							"id": "1",
+							"parent_id": None,
+							"name": name,
+							"role": "push button",
+							"description": "",
+							"value": "",
+							"states": ["focused"],
+						},
+					],
+				},
+			).encode("utf-8")
+			+ b"\n"
+		)
+
+	def test_focus_before_handshake_is_ignored(self):
+		decoder = A11ySessionDecoder()
+		self.assertEqual(decoder.feed(self._focusLine()), [])
+		self.assertFalse(decoder.ready)
+
+	def test_handshake_enables_following_focus(self):
+		decoder = A11ySessionDecoder()
+		data = (
+			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
+			+ self._focusLine("Open")
+		)
+		messages = decoder.feed(data)
+		self.assertTrue(decoder.ready)
+		self.assertEqual(len(messages), 2)
+		self.assertIsInstance(messages[0], ProtocolVersionMessage)
+		self.assertIsInstance(messages[1], FocusMessage)
+		self.assertEqual(messages[1].objects[0].name, "Open")
+
+	def test_bad_handshake_does_not_enable_focus(self):
+		decoder = A11ySessionDecoder()
+		data = (
+			b'{"type":"protocol_version","version":99,"channel":"NVDA-A11Y"}\n'
+			+ self._focusLine()
+		)
+		self.assertEqual(decoder.feed(data), [])
+		self.assertFalse(decoder.ready)
+
+	def test_focus_after_prior_handshake_is_accepted(self):
+		decoder = A11ySessionDecoder()
+		decoder.feed(b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n')
+		messages = decoder.feed(self._focusLine("Next"))
+		self.assertEqual(len(messages), 1)
+		self.assertIsInstance(messages[0], FocusMessage)
+		self.assertEqual(messages[0].objects[0].name, "Next")
 
 
 if __name__ == "__main__":
