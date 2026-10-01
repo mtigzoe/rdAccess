@@ -81,6 +81,28 @@ class CrossRepoA11yContractTests(unittest.TestCase):
 				self.assertEqual(mapped_states, sorted(case["expected_nvda_states"]))
 				self.assertEqual(focus.value, case["expected_value"])
 
+	def test_linux_navigation_fixture_preserves_tree_relationships(self):
+		fixture = json.loads(pathlib.Path(sys.argv_navigation_fixture).read_text(encoding="utf-8"))
+		message = a11y.decodeMessage(fixture["message"])
+		by_name = {node.name: node for node in message.objects}
+		expected = fixture["expected"]
+
+		focus = by_name[expected["focus"]]
+		parent = by_name[expected["parent"]]
+		previous = by_name[expected["previous"]]
+		next_node = by_name[expected["next"]]
+		child = by_name[expected["first_child"]]
+
+		self.assertEqual(message.focusId, focus.nodeId)
+		self.assertEqual(focus.parentId, parent.nodeId)
+		self.assertEqual(focus.childIds, (child.nodeId,))
+		self.assertEqual(
+			parent.childIds,
+			(previous.nodeId, focus.nodeId, next_node.nodeId),
+		)
+		self.assertEqual(by_name[expected["parent_first_child"]].nodeId, parent.childIds[0])
+		self.assertEqual(by_name[expected["parent_last_child"]].nodeId, parent.childIds[-1])
+
 	def test_core_linux_states_have_nvda_mappings(self):
 		state_map = load_mapping("_STATE_MAP")
 		expected = {
@@ -97,13 +119,14 @@ class CrossRepoA11yContractTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-	if len(sys.argv) != 4:
+	if len(sys.argv) != 5:
 		raise SystemExit(
 			"usage: python tests/remote_a11y_contract.py "
-			"<fixture.json> <role-matrix.json> <state-matrix.json>",
+			"<fixture.json> <role-matrix.json> <state-matrix.json> <navigation-fixture.json>",
 		)
 	sys.argv_fixture = sys.argv[1]
 	sys.argv_role_matrix = sys.argv[2]
 	sys.argv_state_matrix = sys.argv[3]
+	sys.argv_navigation_fixture = sys.argv[4]
 	sys.argv = [sys.argv[0]]
 	unittest.main(verbosity=2)
