@@ -345,6 +345,25 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 		self.assertIsNone(focus.previous.previous)
 		self.assertIsNone(focus.next.next)
 
+	def test_simple_review_navigation_preserves_remote_tree(self):
+		wire = (
+			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
+			+ json.dumps(self._focus_message()).encode()
+			+ b"\n"
+		)
+		self.handler._onReceive(wire)
+		queueHandler.pumpAll()
+
+		focus = self.eventHandler.events[0][1]
+		self.assertIs(focus._get_simpleParent(), focus.parent)
+		self.assertIs(focus._get_simpleFirstChild(), focus.firstChild)
+		self.assertIs(focus._get_simpleLastChild(), focus.lastChild)
+		self.assertIs(focus._get_simplePrevious(), focus.previous)
+		self.assertIs(focus._get_simpleNext(), focus.next)
+		self.assertEqual(focus._get_simplePrevious().name, "Cancel")
+		self.assertEqual(focus._get_simpleNext().name, "Help")
+		self.assertIs(focus._get_simplePrevious()._get_simpleNext(), focus)
+
 	def test_nvda_do_action_sends_remote_action_request(self):
 		wire = (
 			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
@@ -378,6 +397,18 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 		self.assertEqual(
 			self.handler._dev.writes[-1],
 			b'{"type":"a11y_action","object_id":"save","action_index":0}\n',
+		)
+
+	def test_ping_after_handshake_replies_without_focus_event(self):
+		wire = (
+			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n{"type":"a11y_ping","nonce":9}\n'
+		)
+		self.handler._onReceive(wire)
+		queueHandler.pumpAll()
+		self.assertEqual(self.eventHandler.events, [])
+		self.assertEqual(
+			self.handler._dev.writes,
+			[b'{"type":"a11y_pong","nonce":9}\n'],
 		)
 
 	def test_focus_before_protocol_handshake_is_ignored(self):

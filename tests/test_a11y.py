@@ -7,8 +7,10 @@ from lib.a11y import (
 	A11yJsonLineReceiver,
 	A11ySessionDecoder,
 	FocusMessage,
+	PingMessage,
 	ProtocolVersionMessage,
 	decodeMessage,
+	encodePong,
 )
 
 
@@ -56,6 +58,17 @@ class A11yMessageTests(unittest.TestCase):
 		self.assertIsInstance(message, ProtocolVersionMessage)
 		self.assertEqual(message.version, 2)
 		self.assertEqual(message.channel, "NVDA-A11Y")
+
+	def test_decodes_ping_and_encodes_pong(self):
+		message = decodeMessage({"type": "a11y_ping", "nonce": 7})
+		self.assertIsInstance(message, PingMessage)
+		self.assertEqual(message.nonce, 7)
+		self.assertEqual(encodePong(7), b'{"type":"a11y_pong","nonce":7}\n')
+
+	def test_invalid_ping_nonce_is_rejected(self):
+		for nonce in (-1, True, 0x80000000):
+			with self.subTest(nonce=nonce), self.assertRaises(ValueError):
+				decodeMessage({"type": "a11y_ping", "nonce": nonce})
 
 	def test_decodes_focus_snapshot_and_parent_ids(self):
 		message = decodeMessage(self._focusMessage())
