@@ -380,6 +380,19 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 			b'{"type":"a11y_action","object_id":"save","action_index":0}\n',
 		)
 
+	def test_ping_after_handshake_replies_without_focus_event(self):
+		wire = (
+			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
+			b'{"type":"a11y_ping","nonce":9}\n'
+		)
+		self.handler._onReceive(wire)
+		queueHandler.pumpAll()
+		self.assertEqual(self.eventHandler.events, [])
+		self.assertEqual(
+			self.handler._dev.writes,
+			[b'{"type":"a11y_pong","nonce":9}\n'],
+		)
+
 	def test_focus_before_protocol_handshake_is_ignored(self):
 		self.handler._onReceive(json.dumps(self._focus_message()).encode() + b"\n")
 		queueHandler.pumpAll()
