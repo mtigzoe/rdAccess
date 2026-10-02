@@ -70,7 +70,7 @@ class RemoteA11yTextInfo(NVDAObjects.NVDAObjectTextInfo):
 
 	def _getStoryText(self) -> str:
 		obj = self._remoteObj
-		return obj._node.text if obj._node.textSupported else obj.basicText
+		return obj._node.text if obj._node.textSupported else obj._get_basicText()
 
 	def _getCaretOffset(self) -> int:
 		obj = self._remoteObj
@@ -89,7 +89,7 @@ class RemoteA11yTextInfo(NVDAObjects.NVDAObjectTextInfo):
 			return node.caretOffset, node.caretOffset
 		raise NotImplementedError
 
-	def allowMoveToUnitOffsetPastEnd(self, _unit: str) -> bool:
+	def allowMoveToUnitOffsetPastEnd(self, unit: str) -> bool:  # noqa: ARG002
 		return self._remoteObj._node.textSupported
 
 
