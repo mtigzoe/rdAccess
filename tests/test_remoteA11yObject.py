@@ -22,6 +22,17 @@ class _FakeNVDAObject:
 	def __init__(self, **kwargs):
 		pass
 
+	@property
+	def basicText(self):
+		getter = getattr(self, "_get_basicText", None)
+		return getter() if getter else ""
+
+
+class _FakeNVDAObjectTextInfo:
+	def __init__(self, obj, position=None):
+		self.obj = obj
+		self.position = position
+
 
 def _load_handler_module():
 	"""Load the handler with only the runtime pieces needed by RemoteA11yObject."""
@@ -35,6 +46,7 @@ def _load_handler_module():
 
 	nvdaObjects = types.ModuleType("NVDAObjects")
 	nvdaObjects.NVDAObject = _FakeNVDAObject
+	nvdaObjects.NVDAObjectTextInfo = _FakeNVDAObjectTextInfo
 	sys.modules["NVDAObjects"] = nvdaObjects
 
 	import addonHandler
@@ -85,12 +97,24 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 		description: str = "",
 		childIds: tuple[str, ...] = (),
 		actionNames: tuple[str, ...] = (),
+		textSupported: bool = False,
+		text: str = "",
+		textTruncated: bool = False,
+		caretOffset: int | None = None,
+		selectionStart: int | None = None,
+		selectionEnd: int | None = None,
 	):
 		return A11yNode(
 			nodeId="1",
 			parentId=None,
 			childIds=childIds,
 			actionNames=actionNames,
+			textSupported=textSupported,
+			text=text,
+			textTruncated=textTruncated,
+			caretOffset=caretOffset,
+			selectionStart=selectionStart,
+			selectionEnd=selectionEnd,
 			name=name,
 			role=role,
 			description=description,
@@ -179,6 +203,50 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 				controlTypes.State.SELECTED,
 			},
 		)
+
+	def test_remote_text_info_exposes_story_caret_and_selection(self):
+		obj = self._obj(
+			self._node(
+				role="text",
+				textSupported=True,
+				text="hello world",
+				caretOffset=5,
+				selectionStart=1,
+				selectionEnd=4,
+			),
+		)
+		info = handler.RemoteA11yTextInfo(obj)
+		self.assertEqual(info._getStoryText(), "hello world")
+		self.assertEqual(info._getCaretOffset(), 5)
+		self.assertEqual(info._getSelectionOffsets(), (1, 4))
+		self.assertTrue(info.allowMoveToUnitOffsetPastEnd("character"))
+		self.assertEqual(obj._get_basicText(), "hello world")
+
+	def test_remote_text_selection_falls_back_to_caret(self):
+		obj = self._obj(
+			self._node(
+				role="text",
+				textSupported=True,
+				text="hello",
+				caretOffset=3,
+			),
+		)
+		info = handler.RemoteA11yTextInfo(obj)
+		self.assertEqual(info._getSelectionOffsets(), (3, 3))
+
+	def test_remote_text_without_caret_rejects_caret_position(self):
+		obj = self._obj(
+			self._node(
+				role="text",
+				textSupported=True,
+				text="hello",
+			),
+		)
+		info = handler.RemoteA11yTextInfo(obj)
+		with self.assertRaises(NotImplementedError):
+			info._getCaretOffset()
+		with self.assertRaises(NotImplementedError):
+			info._getSelectionOffsets()
 
 	def test_actions_are_exposed_through_nvda_object_api(self):
 		obj = self._obj(

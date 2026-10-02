@@ -22,6 +22,7 @@ MAX_STATES: Final[int] = 64
 MAX_STATE_CHARS: Final[int] = 64
 MAX_ACTIONS: Final[int] = 32
 MAX_ACTION_NAME_CHARS: Final[int] = 256
+MAX_TEXT_CHARS: Final[int] = 8192
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,12 @@ class A11yNode:
 	parentId: str | None
 	childIds: tuple[str, ...]
 	actionNames: tuple[str, ...]
+	textSupported: bool
+	text: str
+	textTruncated: bool
+	caretOffset: int | None
+	selectionStart: int | None
+	selectionEnd: int | None
 	name: str
 	role: str
 	description: str
@@ -55,7 +62,19 @@ class PingMessage:
 	nonce: int
 
 
-A11yMessage = ProtocolVersionMessage | FocusMessage | PingMessage
+@dataclass(frozen=True)
+class TextUpdateMessage:
+	objectId: str
+	event: str
+	textSupported: bool
+	text: str
+	textTruncated: bool
+	caretOffset: int | None
+	selectionStart: int | None
+	selectionEnd: int | None
+
+
+A11yMessage = ProtocolVersionMessage | FocusMessage | PingMessage | TextUpdateMessage
 
 
 def _boundedString(value: Any, *, limit: int, field: str) -> str:
@@ -96,6 +115,43 @@ def _decodeActionNames(value: Any) -> tuple[str, ...]:
 	return tuple(_boundedString(item, limit=MAX_ACTION_NAME_CHARS, field="action name") for item in value)
 
 
+def _decodeOptionalOffset(value: Any, *, field: str, textLength: int) -> int | None:
+	if value is None:
+		return None
+	if type(value) is not int or value < 0 or value > textLength:
+		raise ValueError(f"{field} must be null or an offset within the text snapshot")
+	return value
+
+
+def _decodeTextSnapshot(value: dict[str, Any]) -> tuple[bool, str, bool, int | None, int | None, int | None]:
+	textSupported = value.get("text_supported", False)
+	textTruncated = value.get("text_truncated", False)
+	if type(textSupported) is not bool or type(textTruncated) is not bool:
+		raise ValueError("text support flags must be booleans")
+	text = _boundedString(value.get("text", ""), limit=MAX_TEXT_CHARS, field="text")
+	textLength = len(text)
+	caret = _decodeOptionalOffset(value.get("caret_offset"), field="caret offset", textLength=textLength)
+	selectionStart = _decodeOptionalOffset(
+		value.get("selection_start"),
+		field="selection start",
+		textLength=textLength,
+	)
+	selectionEnd = _decodeOptionalOffset(
+		value.get("selection_end"),
+		field="selection end",
+		textLength=textLength,
+	)
+	if (selectionStart is None) != (selectionEnd is None):
+		raise ValueError("selection start and end must both be present or both be null")
+	if selectionStart is not None and selectionEnd is not None and selectionEnd < selectionStart:
+		raise ValueError("selection end precedes selection start")
+	if not textSupported and (
+		text or textTruncated or caret is not None or selectionStart is not None or selectionEnd is not None
+	):
+		raise ValueError("text data was provided for an object without text support")
+	return textSupported, text, textTruncated, caret, selectionStart, selectionEnd
+
+
 def _decodeBounds(value: Any) -> tuple[int, int, int, int] | None:
 	if value is None:
 		return None
@@ -122,11 +178,18 @@ def _decodeStates(value: Any) -> frozenset[str]:
 def _decodeNode(value: Any) -> A11yNode:
 	if not isinstance(value, dict):
 		raise ValueError("object entry must be an object")
+	textSupported, text, textTruncated, caret, selectionStart, selectionEnd = _decodeTextSnapshot(value)
 	return A11yNode(
 		nodeId=typing.cast(str, _decodeId(value.get("id"), field="object id")),
 		parentId=_decodeId(value.get("parent_id"), field="parent id", allowNone=True),
 		childIds=_decodeIdList(value.get("child_ids"), field="child ids"),
 		actionNames=_decodeActionNames(value.get("actions")),
+		textSupported=textSupported,
+		text=text,
+		textTruncated=textTruncated,
+		caretOffset=caret,
+		selectionStart=selectionStart,
+		selectionEnd=selectionEnd,
 		name=_boundedString(value.get("name", ""), limit=MAX_NAME_CHARS, field="name"),
 		role=_boundedString(value.get("role", ""), limit=MAX_ROLE_CHARS, field="role").strip().lower(),
 		description=_boundedString(
@@ -140,6 +203,16 @@ def _decodeNode(value: Any) -> A11yNode:
 	)
 
 
+def _decodeProtocolVersion(message: dict[str, Any]) -> ProtocolVersionMessage:
+	version = message.get("version")
+	channel = message.get("channel")
+	if type(version) is not int or version != PROTOCOL_VERSION:
+		raise ValueError("unsupported accessibility protocol version")
+	if channel != CHANNEL_NAME:
+		raise ValueError("wrong accessibility channel")
+	return ProtocolVersionMessage(version=version, channel=channel)
+
+
 def _decodePing(message: dict[str, Any]) -> PingMessage:
 	nonce = message.get("nonce")
 	if type(nonce) is not int or nonce < 0 or nonce > 0x7FFFFFFF:
@@ -147,21 +220,38 @@ def _decodePing(message: dict[str, Any]) -> PingMessage:
 	return PingMessage(nonce=nonce)
 
 
+def _decodeTextUpdate(message: dict[str, Any]) -> TextUpdateMessage:
+	objectId = typing.cast(str, _decodeId(message.get("object_id"), field="object id"))
+	event = message.get("event")
+	if event not in ("caret", "textChange"):
+		raise ValueError("unsupported accessibility text event")
+	textSupported, text, textTruncated, caret, selectionStart, selectionEnd = _decodeTextSnapshot(message)
+	if not textSupported:
+		raise ValueError("text update must describe a text-supported object")
+	return TextUpdateMessage(
+		objectId=objectId,
+		event=event,
+		textSupported=textSupported,
+		text=text,
+		textTruncated=textTruncated,
+		caretOffset=caret,
+		selectionStart=selectionStart,
+		selectionEnd=selectionEnd,
+	)
+
+
 def decodeMessage(message: Any) -> A11yMessage:
 	if not isinstance(message, dict):
 		raise ValueError("message must be an object")
 	messageType = message.get("type")
 	if messageType == "protocol_version":
-		version = message.get("version")
-		channel = message.get("channel")
-		if type(version) is not int or version != PROTOCOL_VERSION:
-			raise ValueError("unsupported accessibility protocol version")
-		if channel != CHANNEL_NAME:
-			raise ValueError("wrong accessibility channel")
-		return ProtocolVersionMessage(version=version, channel=channel)
+		return _decodeProtocolVersion(message)
 
 	if messageType == "a11y_ping":
 		return _decodePing(message)
+
+	if messageType == "a11y_text":
+		return _decodeTextUpdate(message)
 
 	if messageType != "a11y_focus":
 		raise ValueError("unsupported accessibility message type")

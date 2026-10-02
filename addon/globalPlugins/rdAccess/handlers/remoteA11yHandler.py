@@ -63,7 +63,39 @@ _STATE_MAP = {
 }
 
 
+class RemoteA11yTextInfo(NVDAObjects.NVDAObjectTextInfo):
+	@property
+	def _remoteObj(self) -> RemoteA11yObject:
+		return typing.cast("RemoteA11yObject", self.obj)
+
+	def _getStoryText(self) -> str:
+		obj = self._remoteObj
+		return obj._node.text if obj._node.textSupported else obj._get_basicText()
+
+	def _getCaretOffset(self) -> int:
+		obj = self._remoteObj
+		offset = obj._node.caretOffset
+		if not obj._node.textSupported or offset is None:
+			raise NotImplementedError
+		return offset
+
+	def _getSelectionOffsets(self) -> tuple[int, int]:
+		node = self._remoteObj._node
+		if not node.textSupported:
+			raise NotImplementedError
+		if node.selectionStart is not None and node.selectionEnd is not None:
+			return node.selectionStart, node.selectionEnd
+		if node.caretOffset is not None:
+			return node.caretOffset, node.caretOffset
+		raise NotImplementedError
+
+	def allowMoveToUnitOffsetPastEnd(self, unit: str) -> bool:  # noqa: ARG002
+		return self._remoteObj._node.textSupported
+
+
 class RemoteA11yObject(NVDAObjects.NVDAObject):
+	TextInfo = RemoteA11yTextInfo
+
 	@classmethod
 	def findBestAPIClass(cls, kwargs, relation=None):  # noqa: ARG003
 		return cls
@@ -84,9 +116,15 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 		self._objectMap = objectMap
 		self._actionSender = actionSender
 		self.remoteBounds = node.bounds
+		self.remoteTextTruncated = node.textTruncated
 
 	def _get_processID(self) -> int:
 		return self._remoteProcessID
+
+	def _get_basicText(self) -> str:
+		if self._node.textSupported:
+			return self._node.text
+		return super()._get_basicText()
 
 	def _get_name(self) -> str:
 		return self._node.name

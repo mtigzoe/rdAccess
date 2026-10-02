@@ -120,6 +120,12 @@ class FakeNVDAObject:
 		return getter() if getter else None
 
 
+class FakeNVDAObjectTextInfo:
+	def __init__(self, obj, position=None):
+		self.obj = obj
+		self.position = position
+
+
 class HostObject(FakeNVDAObject):
 	def __init__(self, process_id):
 		self._process_id = process_id
@@ -154,6 +160,7 @@ def install_handler_runtime_stubs():
 
 	nvda_objects = types.ModuleType("NVDAObjects")
 	nvda_objects.NVDAObject = FakeNVDAObject
+	nvda_objects.NVDAObjectTextInfo = FakeNVDAObjectTextInfo
 	sys.modules["NVDAObjects"] = nvda_objects
 
 	api = types.ModuleType("api")
@@ -236,6 +243,12 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 					"description": "Save changes",
 					"value": "",
 					"actions": ["click", "show menu"],
+					"text_supported": True,
+					"text": "hello world",
+					"text_truncated": False,
+					"caret_offset": 5,
+					"selection_start": 1,
+					"selection_end": 4,
 					"states": ["focused", "focusable"],
 					"bounds": [10, 20, 80, 30],
 				},
@@ -325,6 +338,23 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 		self.assertEqual(focus.parent.parent.name, "Test App")
 		self.assertEqual(focus.parent.parent.role, Role.APPLICATION)
 		self.assertIs(focus.parent.parent.parent, self.handler._hostObject)
+
+	def test_focus_object_exposes_remote_text_snapshot(self):
+		wire = (
+			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
+			+ json.dumps(self._focus_message()).encode()
+			+ b"\n"
+		)
+		self.handler._onReceive(wire)
+		queueHandler.pumpAll()
+
+		focus = self.eventHandler.events[0][1]
+		self.assertTrue(focus._node.textSupported)
+		self.assertEqual(focus._get_basicText(), "hello world")
+		self.assertEqual(focus._node.caretOffset, 5)
+		self.assertEqual(focus._node.selectionStart, 1)
+		self.assertEqual(focus._node.selectionEnd, 4)
+		self.assertFalse(focus.remoteTextTruncated)
 
 	def test_focus_object_exposes_parent_child_and_sibling_navigation(self):
 		wire = (
