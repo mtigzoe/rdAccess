@@ -135,9 +135,8 @@ class A11yMessageTests(unittest.TestCase):
 			raw = self._focusMessage()
 			raw["objects"][0]["selection_start"] = start
 			raw["objects"][0]["selection_end"] = end
-			with self.subTest(start=start, end=end):
-				with self.assertRaises(ValueError):
-					decodeMessage(raw)
+			with self.subTest(start=start, end=end), self.assertRaises(ValueError):
+				decodeMessage(raw)
 
 	def test_text_data_without_text_support_is_rejected(self):
 		raw = self._focusMessage()
