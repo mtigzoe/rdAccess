@@ -345,6 +345,25 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 		self.assertIsNone(focus.previous.previous)
 		self.assertIsNone(focus.next.next)
 
+	def test_simple_review_navigation_preserves_remote_tree(self):
+		wire = (
+			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
+			+ json.dumps(self._focus_message()).encode()
+			+ b"\n"
+		)
+		self.handler._onReceive(wire)
+		queueHandler.pumpAll()
+
+		focus = self.eventHandler.events[0][1]
+		self.assertIs(focus.simpleParent, focus.parent)
+		self.assertIs(focus.simpleFirstChild, focus.firstChild)
+		self.assertIs(focus.simpleLastChild, focus.lastChild)
+		self.assertIs(focus.simplePrevious, focus.previous)
+		self.assertIs(focus.simpleNext, focus.next)
+		self.assertEqual(focus.simplePrevious.name, "Cancel")
+		self.assertEqual(focus.simpleNext.name, "Help")
+		self.assertIs(focus.simplePrevious.simpleNext, focus)
+
 	def test_nvda_do_action_sends_remote_action_request(self):
 		wire = (
 			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
