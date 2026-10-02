@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mtigzoe/linux-rdaccess
-          ref: feature/remote-a11y-text
+          ref: main
           path: linux-rdaccess
       - uses: actions/setup-python@v5
         with:
