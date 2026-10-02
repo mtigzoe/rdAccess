@@ -9,6 +9,7 @@ import typing
 
 import addonHandler
 import api
+import braille
 import controlTypes
 import eventHandler
 import NVDAObjects
@@ -138,8 +139,6 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 
 	def event_textChange(self) -> None:
 		# Plain NVDAObjects do not refresh braille when their text changes.
-		import braille
-
 		if braille.handler is not None:
 			braille.handler.handleUpdate(self)
 
