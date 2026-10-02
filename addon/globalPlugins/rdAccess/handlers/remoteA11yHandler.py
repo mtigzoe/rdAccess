@@ -140,7 +140,8 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 		# Plain NVDAObjects do not refresh braille when their text changes.
 		import braille
 
-		braille.handler.handleUpdate(self)
+		if braille.handler is not None:
+			braille.handler.handleUpdate(self)
 
 	def _get_basicText(self) -> str:
 		if self._node.textSupported:
