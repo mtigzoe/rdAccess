@@ -44,7 +44,12 @@ jobs:
       run: uv sync
 
     - name: Code checks
-      run: $env:SKIP = "no-commit-to-branch"; uv run prek run --all-files
+      run: |
+        $env:SKIP = "no-commit-to-branch"
+        uv run prek run --all-files
+        $checkExit = $LASTEXITCODE
+        git diff
+        exit $checkExit
 
     - name: building addon
       run: uv run scons && uv run scons pot
