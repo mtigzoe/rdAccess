@@ -65,7 +65,7 @@ _STATE_MAP = {
 
 class RemoteA11yTextInfo(NVDAObjects.NVDAObjectTextInfo):
 	@property
-	def _remoteObj(self) -> "RemoteA11yObject":
+	def _remoteObj(self) -> RemoteA11yObject:
 		return typing.cast("RemoteA11yObject", self.obj)
 
 	def _getStoryText(self) -> str:
@@ -95,6 +95,7 @@ class RemoteA11yTextInfo(NVDAObjects.NVDAObjectTextInfo):
 
 class RemoteA11yObject(NVDAObjects.NVDAObject):
 	TextInfo = RemoteA11yTextInfo
+
 	@classmethod
 	def findBestAPIClass(cls, kwargs, relation=None):  # noqa: ARG003
 		return cls
