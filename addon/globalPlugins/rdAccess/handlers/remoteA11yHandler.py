@@ -195,6 +195,9 @@ class RemoteA11yHandler:
 					message.channel,
 				)
 				continue
+			if isinstance(message, a11y.PingMessage):
+				self._dev.write(a11y.encodePong(message.nonce))
+				continue
 			queueHandler.queueFunction(
 				queueHandler.eventQueue,
 				self._handleFocusOnMainThread,
