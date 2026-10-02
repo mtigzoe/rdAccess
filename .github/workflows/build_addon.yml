@@ -44,7 +44,17 @@ jobs:
       run: uv sync
 
     - name: Code checks
+      id: code_checks
+      continue-on-error: true
       run: $env:SKIP = "no-commit-to-branch"; uv run prek run --all-files
+
+    - name: Show code-check diff
+      if: always()
+      run: git diff -- addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py tests/test_remoteA11yHandler.py pyproject.toml prek.toml
+
+    - name: Fail if code checks failed
+      if: steps.code_checks.outcome == 'failure'
+      run: exit 1
 
     - name: building addon
       run: uv run scons && uv run scons pot
