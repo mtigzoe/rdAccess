@@ -64,17 +64,23 @@ _STATE_MAP = {
 
 
 class RemoteA11yTextInfo(NVDAObjects.NVDAObjectTextInfo):
+	@property
+	def _remoteObj(self) -> "RemoteA11yObject":
+		return typing.cast("RemoteA11yObject", self.obj)
+
 	def _getStoryText(self) -> str:
-		return self.obj._node.text if self.obj._node.textSupported else self.obj.basicText
+		obj = self._remoteObj
+		return obj._node.text if obj._node.textSupported else obj.basicText
 
 	def _getCaretOffset(self) -> int:
-		offset = self.obj._node.caretOffset
-		if not self.obj._node.textSupported or offset is None:
+		obj = self._remoteObj
+		offset = obj._node.caretOffset
+		if not obj._node.textSupported or offset is None:
 			raise NotImplementedError
 		return offset
 
 	def _getSelectionOffsets(self) -> tuple[int, int]:
-		node = self.obj._node
+		node = self._remoteObj._node
 		if not node.textSupported:
 			raise NotImplementedError
 		if node.selectionStart is not None and node.selectionEnd is not None:
@@ -83,8 +89,8 @@ class RemoteA11yTextInfo(NVDAObjects.NVDAObjectTextInfo):
 			return node.caretOffset, node.caretOffset
 		raise NotImplementedError
 
-	def allowMoveToUnitOffsetPastEnd(self, unit: str) -> bool:
-		return self.obj._node.textSupported
+	def allowMoveToUnitOffsetPastEnd(self, _unit: str) -> bool:
+		return self._remoteObj._node.textSupported
 
 
 class RemoteA11yObject(NVDAObjects.NVDAObject):
