@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import typing
 
 import addonHandler
@@ -108,8 +109,10 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 		parentObject: NVDAObjects.NVDAObject | None,
 		objectMap: dict[str, RemoteA11yObject],
 		actionSender: typing.Callable[[str, int], None],
+		session: int = 0,
 	):
 		super().__init__()
+		self._session = session
 		self._remoteProcessID = processID
 		self._node = node
 		self._parentObject = parentObject
@@ -120,6 +123,24 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 
 	def _get_processID(self) -> int:
 		return self._remoteProcessID
+
+	def _isEqual(self, other: NVDAObjects.NVDAObject) -> bool:
+		# NVDAObject.__eq__ treats any two objects of the same class as equal unless this says otherwise.
+		# NVDA's api.setFocusObject() relies on == to work out which focus ancestors changed, so without
+		# this every remote object would look identical to the previous one, and an object rebuilt after
+		# a reconnect would be mistaken for the one from the dead session.
+		return (
+			isinstance(other, RemoteA11yObject)
+			and self._session == other._session
+			and self._remoteProcessID == other._remoteProcessID
+			and self._node.nodeId == other._node.nodeId
+		)
+
+	def event_textChange(self) -> None:
+		# Plain NVDAObjects do not refresh braille when their text changes.
+		import braille
+
+		braille.handler.handleUpdate(self)
 
 	def _get_basicText(self) -> str:
 		if self._node.textSupported:
@@ -225,6 +246,11 @@ class RemoteA11yHandler:
 		self._hostObject: NVDAObjects.NVDAObject | None = None
 		self._objects: dict[str, RemoteA11yObject] = {}
 		self._driver = None
+		# Bumped (on the IO thread) by every protocol handshake. A new handshake means the Linux side
+		# opened a new channel session, so snapshots, object IDs and queued messages from earlier
+		# sessions must never be mixed with the new one.
+		self._session = 0
+		self._terminated = False
 		self._dev = namedPipe.NamedPipeClient(
 			pipeName=pipeName,
 			onReceive=self._onReceive,
@@ -245,10 +271,12 @@ class RemoteA11yHandler:
 	def _onReceive(self, data: bytes) -> None:
 		for message in self._receiver.feed(data):
 			if isinstance(message, a11y.ProtocolVersionMessage):
+				self._session += 1
 				log.debug(
-					"Remote accessibility protocol v%d on %s",
+					"Remote accessibility protocol v%d on %s (session %d)",
 					message.version,
 					message.channel,
+					self._session,
 				)
 				continue
 			if isinstance(message, a11y.PingMessage):
@@ -256,14 +284,31 @@ class RemoteA11yHandler:
 				continue
 			queueHandler.queueFunction(
 				queueHandler.eventQueue,
-				self._handleFocusOnMainThread,
+				self._handleMessageOnMainThread,
+				self._session,
 				message,
 			)
 
-	def _handleFocusOnMainThread(self, message: a11y.FocusMessage) -> None:
+	def _handleMessageOnMainThread(
+		self,
+		session: int,
+		message: a11y.FocusMessage | a11y.TextUpdateMessage,
+	) -> None:
+		if self._terminated or session != self._session:
+			log.debug("Dropping remote accessibility message from a finished session")
+			return
+		if isinstance(message, a11y.TextUpdateMessage):
+			self._handleTextUpdateOnMainThread(message)
+		else:
+			self._handleFocusOnMainThread(message, session)
+
+	def _handleFocusOnMainThread(self, message: a11y.FocusMessage, session: int | None = None) -> None:
+		if session is None:
+			session = self._session
 		processID = self._dev.pipeProcessId or 0
 		nodes = {node.nodeId: node for node in message.objects}
 		objects: dict[str, RemoteA11yObject] = {}
+		self._ensureHostObject()
 
 		def buildObject(nodeId: str) -> RemoteA11yObject:
 			existing = objects.get(nodeId)
@@ -279,6 +324,7 @@ class RemoteA11yHandler:
 				parentObject=parentObject,
 				objectMap=objects,
 				actionSender=self._sendAction,
+				session=session,
 			)
 			objects[nodeId] = obj
 			return obj
@@ -298,7 +344,44 @@ class RemoteA11yHandler:
 			focus.role,
 			len(objects),
 		)
+		# Replays after a reconnect take exactly this path, so NVDA handles them like a live focus change.
 		eventHandler.executeEvent("gainFocus", focus)
+
+	def _handleTextUpdateOnMainThread(self, message: a11y.TextUpdateMessage) -> None:
+		obj = self._objects.get(message.objectId)
+		if obj is None:
+			log.debug("Ignoring text update for unknown remote object %s", message.objectId)
+			return
+		obj._node = dataclasses.replace(
+			obj._node,
+			textSupported=message.textSupported,
+			text=message.text,
+			textTruncated=message.textTruncated,
+			caretOffset=message.caretOffset,
+			selectionStart=message.selectionStart,
+			selectionEnd=message.selectionEnd,
+		)
+		obj.remoteTextTruncated = message.textTruncated
+		if obj is not api.getFocusObject():
+			return
+		eventHandler.executeEvent("caret" if message.event == "caret" else "textChange", obj)
+
+	def _ensureHostObject(self) -> None:
+		"""Remember the Remote Desktop client window as the root of the remote tree.
+
+		The host is normally recorded when NVDA reports focus on that window, but on a fresh session
+		the first snapshot can arrive before that happened. Fall back to the current focus when it
+		is still the client window.
+		"""
+		if self._hostObject is not None:
+			return
+		focus = api.getFocusObject()
+		if (
+			focus is not None
+			and not isinstance(focus, RemoteA11yObject)
+			and focus.processID in (self._dev.pipeProcessId, self._dev.pipeParentProcessId)
+		):
+			self._hostObject = focus
 
 	def _sendAction(self, objectId: str, actionIndex: int) -> None:
 		self._dev.write(a11y.encodeActionRequest(objectId, actionIndex))
@@ -317,5 +400,6 @@ class RemoteA11yHandler:
 		return self.decide_remoteDisconnect.decide(handler=self, error=error)
 
 	def terminate(self) -> None:
+		self._terminated = True
 		self._objects.clear()
 		self._dev.close()

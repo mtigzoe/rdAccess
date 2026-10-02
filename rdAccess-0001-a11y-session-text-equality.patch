@@ -1,0 +1,362 @@
+diff --git a/addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py b/addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py
+index bad70b5..d78bb0d 100644
+--- a/addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py
++++ b/addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py
+@@ -4,6 +4,7 @@
+ 
+ from __future__ import annotations
+ 
++import dataclasses
+ import typing
+ 
+ import addonHandler
+@@ -108,8 +109,10 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
+ 		parentObject: NVDAObjects.NVDAObject | None,
+ 		objectMap: dict[str, RemoteA11yObject],
+ 		actionSender: typing.Callable[[str, int], None],
++		session: int = 0,
+ 	):
+ 		super().__init__()
++		self._session = session
+ 		self._remoteProcessID = processID
+ 		self._node = node
+ 		self._parentObject = parentObject
+@@ -121,6 +124,24 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
+ 	def _get_processID(self) -> int:
+ 		return self._remoteProcessID
+ 
++	def _isEqual(self, other: NVDAObjects.NVDAObject) -> bool:
++		# NVDAObject.__eq__ treats any two objects of the same class as equal unless this says otherwise.
++		# NVDA's api.setFocusObject() relies on == to work out which focus ancestors changed, so without
++		# this every remote object would look identical to the previous one, and an object rebuilt after
++		# a reconnect would be mistaken for the one from the dead session.
++		return (
++			isinstance(other, RemoteA11yObject)
++			and self._session == other._session
++			and self._remoteProcessID == other._remoteProcessID
++			and self._node.nodeId == other._node.nodeId
++		)
++
++	def event_textChange(self) -> None:
++		# Plain NVDAObjects do not refresh braille when their text changes.
++		import braille
++
++		braille.handler.handleUpdate(self)
++
+ 	def _get_basicText(self) -> str:
+ 		if self._node.textSupported:
+ 			return self._node.text
+@@ -225,6 +246,11 @@ class RemoteA11yHandler:
+ 		self._hostObject: NVDAObjects.NVDAObject | None = None
+ 		self._objects: dict[str, RemoteA11yObject] = {}
+ 		self._driver = None
++		# Bumped (on the IO thread) by every protocol handshake. A new handshake means the Linux side
++		# opened a new channel session, so snapshots, object IDs and queued messages from earlier
++		# sessions must never be mixed with the new one.
++		self._session = 0
++		self._terminated = False
+ 		self._dev = namedPipe.NamedPipeClient(
+ 			pipeName=pipeName,
+ 			onReceive=self._onReceive,
+@@ -245,10 +271,12 @@ class RemoteA11yHandler:
+ 	def _onReceive(self, data: bytes) -> None:
+ 		for message in self._receiver.feed(data):
+ 			if isinstance(message, a11y.ProtocolVersionMessage):
++				self._session += 1
+ 				log.debug(
+-					"Remote accessibility protocol v%d on %s",
++					"Remote accessibility protocol v%d on %s (session %d)",
+ 					message.version,
+ 					message.channel,
++					self._session,
+ 				)
+ 				continue
+ 			if isinstance(message, a11y.PingMessage):
+@@ -256,14 +284,31 @@ class RemoteA11yHandler:
+ 				continue
+ 			queueHandler.queueFunction(
+ 				queueHandler.eventQueue,
+-				self._handleFocusOnMainThread,
++				self._handleMessageOnMainThread,
++				self._session,
+ 				message,
+ 			)
+ 
+-	def _handleFocusOnMainThread(self, message: a11y.FocusMessage) -> None:
++	def _handleMessageOnMainThread(
++		self,
++		session: int,
++		message: a11y.FocusMessage | a11y.TextUpdateMessage,
++	) -> None:
++		if self._terminated or session != self._session:
++			log.debug("Dropping remote accessibility message from a finished session")
++			return
++		if isinstance(message, a11y.TextUpdateMessage):
++			self._handleTextUpdateOnMainThread(message)
++		else:
++			self._handleFocusOnMainThread(message, session)
++
++	def _handleFocusOnMainThread(self, message: a11y.FocusMessage, session: int | None = None) -> None:
++		if session is None:
++			session = self._session
+ 		processID = self._dev.pipeProcessId or 0
+ 		nodes = {node.nodeId: node for node in message.objects}
+ 		objects: dict[str, RemoteA11yObject] = {}
++		self._ensureHostObject()
+ 
+ 		def buildObject(nodeId: str) -> RemoteA11yObject:
+ 			existing = objects.get(nodeId)
+@@ -279,6 +324,7 @@ class RemoteA11yHandler:
+ 				parentObject=parentObject,
+ 				objectMap=objects,
+ 				actionSender=self._sendAction,
++				session=session,
+ 			)
+ 			objects[nodeId] = obj
+ 			return obj
+@@ -298,8 +344,45 @@ class RemoteA11yHandler:
+ 			focus.role,
+ 			len(objects),
+ 		)
++		# Replays after a reconnect take exactly this path, so NVDA handles them like a live focus change.
+ 		eventHandler.executeEvent("gainFocus", focus)
+ 
++	def _handleTextUpdateOnMainThread(self, message: a11y.TextUpdateMessage) -> None:
++		obj = self._objects.get(message.objectId)
++		if obj is None:
++			log.debug("Ignoring text update for unknown remote object %s", message.objectId)
++			return
++		obj._node = dataclasses.replace(
++			obj._node,
++			textSupported=message.textSupported,
++			text=message.text,
++			textTruncated=message.textTruncated,
++			caretOffset=message.caretOffset,
++			selectionStart=message.selectionStart,
++			selectionEnd=message.selectionEnd,
++		)
++		obj.remoteTextTruncated = message.textTruncated
++		if obj is not api.getFocusObject():
++			return
++		eventHandler.executeEvent("caret" if message.event == "caret" else "textChange", obj)
++
++	def _ensureHostObject(self) -> None:
++		"""Remember the Remote Desktop client window as the root of the remote tree.
++
++		The host is normally recorded when NVDA reports focus on that window, but on a fresh session
++		the first snapshot can arrive before that happened. Fall back to the current focus when it
++		is still the client window.
++		"""
++		if self._hostObject is not None:
++			return
++		focus = api.getFocusObject()
++		if (
++			focus is not None
++			and not isinstance(focus, RemoteA11yObject)
++			and focus.processID in (self._dev.pipeProcessId, self._dev.pipeParentProcessId)
++		):
++			self._hostObject = focus
++
+ 	def _sendAction(self, objectId: str, actionIndex: int) -> None:
+ 		self._dev.write(a11y.encodeActionRequest(objectId, actionIndex))
+ 
+@@ -317,5 +400,6 @@ class RemoteA11yHandler:
+ 		return self.decide_remoteDisconnect.decide(handler=self, error=error)
+ 
+ 	def terminate(self) -> None:
++		self._terminated = True
+ 		self._objects.clear()
+ 		self._dev.close()
+diff --git a/tests/test_remoteA11yHandler.py b/tests/test_remoteA11yHandler.py
+index 32c694e..59c7401 100644
+--- a/tests/test_remoteA11yHandler.py
++++ b/tests/test_remoteA11yHandler.py
+@@ -59,6 +59,11 @@ class FakeNVDAObject:
+ 	def __init__(self, *args, **kwargs):
+ 		pass
+ 
++	def _isEqual(self, other):
++		# Same default as NVDAObjects.NVDAObject._isEqual: NVDA's __eq__ treats two objects of the
++		# same type as equal unless a subclass says otherwise.
++		return True
++
+ 	@property
+ 	def processID(self):
+ 		getter = getattr(self, "_get_processID", None)
+@@ -461,5 +466,176 @@ class RemoteA11yHandlerTests(unittest.TestCase):
+ 		self.assertEqual(focus.roleText, "custom widget")
+ 
+ 
++	# -- reconnect / replay / NVDA focus semantics -------------------------------------------
++	HANDSHAKE = b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
++
++	def _wire_focus(self, message=None):
++		return json.dumps(message or self._focus_message()).encode() + b"\n"
++
++	def _focus_for(self, name):
++		raw = self._focus_message()
++		for node in raw["objects"]:
++			if node["id"] == "save":
++				node["name"] = name
++		return raw
++
++	def _text_message(self, object_id="save", text="hello!", caret=6, event="caret", start=None, end=None):
++		return {
++			"type": "a11y_text",
++			"object_id": object_id,
++			"event": event,
++			"text_supported": True,
++			"text": text,
++			"text_truncated": False,
++			"caret_offset": caret,
++			"selection_start": start,
++			"selection_end": end,
++		}
++
++	def _deliver(self, *chunks):
++		for chunk in chunks:
++			self.handler._onReceive(chunk)
++		queueHandler.pumpAll()
++
++	def _gain_focus_events(self):
++		return [obj for name, obj in self.eventHandler.events if name == "gainFocus"]
++
++	def test_tree_is_complete_and_parented_before_gain_focus_is_raised(self):
++		seen = []
++		original = self.eventHandler.executeEvent
++
++		def spy(name, obj):
++			if name == "gainFocus":
++				chain = []
++				node = obj
++				while isinstance(node, self.module.RemoteA11yObject):
++					chain.append(node.name)
++					node = node.parent
++				seen.append((chain, node, sorted(self.handler._objects)))
++			original(name, obj)
++
++		self.eventHandler.executeEvent = spy
++		try:
++			self._deliver(self.HANDSHAKE, self._wire_focus())
++		finally:
++			self.eventHandler.executeEvent = original
++		chain, host, registry = seen[0]
++		self.assertEqual(chain, ["Save", "Settings", "Test App"])
++		self.assertIs(host, self.handler._hostObject)
++		self.assertEqual(registry, ["app", "cancel", "dialog", "help", "hint", "save"])
++
++	def test_focus_event_makes_remote_object_the_nvda_focus(self):
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		focus = self.eventHandler.events[0][1]
++		self.assertIs(self.api.getFocusObject(), focus)
++		self.assertIsNot(self.api.getFocusObject(), self.handler._hostObject)
++
++	def test_replay_after_new_handshake_is_a_fresh_live_focus_event(self):
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		first = self._gain_focus_events()[0]
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		events = self._gain_focus_events()
++		self.assertEqual(len(events), 2)
++		second = events[1]
++		self.assertIsNot(first, second)
++		self.assertEqual(second.name, "Save")
++		self.assertIs(self.api.getFocusObject(), second)
++		self.assertIs(second.parent.parent.parent, self.handler._hostObject)
++
++	def test_objects_from_before_a_reconnect_are_not_equal_to_new_ones(self):
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		first = self._gain_focus_events()[0]
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		second = self._gain_focus_events()[1]
++		# NVDA's api.setFocusObject() decides what changed using ==.
++		self.assertFalse(first._isEqual(second))
++		self.assertFalse(first.parent._isEqual(second.parent))
++
++	def test_same_session_same_node_is_equal_and_different_nodes_are_not(self):
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		first = self._gain_focus_events()[0]
++		self._deliver(self._wire_focus())
++		again = self._gain_focus_events()[1]
++		self.assertTrue(first._isEqual(again))
++		self.assertFalse(first._isEqual(first.parent))
++		self.assertFalse(first._isEqual(first.parent.firstChild))
++
++	def test_focus_queued_before_a_reconnect_is_dropped_as_stale(self):
++		# Session 1's focus is still waiting on NVDA's event queue when session 2 begins.
++		self.handler._onReceive(self.HANDSHAKE + self._wire_focus(self._focus_for("Old session")))
++		self.handler._onReceive(self.HANDSHAKE + self._wire_focus(self._focus_for("New session")))
++		queueHandler.pumpAll()
++		self.assertEqual([obj.name for obj in self._gain_focus_events()], ["New session"])
++
++	def test_focus_queued_before_terminate_is_dropped(self):
++		self.handler._onReceive(self.HANDSHAKE + self._wire_focus())
++		self.handler.terminate()
++		queueHandler.pumpAll()
++		self.assertEqual(self.eventHandler.events, [])
++
++	def test_duplicate_replays_each_raise_exactly_one_gain_focus(self):
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		for _ in range(3):
++			self._deliver(self.HANDSHAKE, self._wire_focus())
++		self.assertEqual(len(self.eventHandler.events), 4)
++		self.assertEqual({name for name, _ in self.eventHandler.events}, {"gainFocus"})
++
++	def test_host_object_is_discovered_when_focus_arrives_before_it_was_recorded(self):
++		self.handler.terminate()
++		handler = self.module.RemoteA11yHandler(None, "test-pipe")  # never saw a host gainFocus
++		self.assertIsNone(handler._hostObject)
++		handler._onReceive(self.HANDSHAKE + self._wire_focus())
++		queueHandler.pumpAll()
++		focus = self._gain_focus_events()[-1]
++		self.assertIs(focus.parent.parent.parent, handler._hostObject)
++		self.assertIsNotNone(handler._hostObject)
++		handler.terminate()
++
++	def test_text_update_is_applied_to_the_focused_object_without_error(self):
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		focus = self._gain_focus_events()[0]
++		self.eventHandler.events.clear()
++		self._deliver(json.dumps(self._text_message(text="hello!", caret=6, start=0, end=2)).encode() + b"\n")
++		self.assertEqual(focus._node.text, "hello!")
++		self.assertEqual(focus._node.caretOffset, 6)
++		self.assertEqual((focus._node.selectionStart, focus._node.selectionEnd), (0, 2))
++		self.assertEqual(self.eventHandler.events, [("caret", focus)])
++		self.assertIs(self.api.getFocusObject(), focus)
++
++	def test_text_change_update_raises_text_change_event(self):
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		focus = self._gain_focus_events()[0]
++		self.eventHandler.events.clear()
++		self._deliver(json.dumps(self._text_message(event="textChange")).encode() + b"\n")
++		self.assertEqual(self.eventHandler.events, [("textChange", focus)])
++
++	def test_text_update_does_not_look_like_a_focus_change(self):
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		self._deliver(json.dumps(self._text_message()).encode() + b"\n")
++		self.assertEqual(len(self._gain_focus_events()), 1)
++
++	def test_text_update_for_unknown_or_pre_reconnect_object_is_ignored(self):
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		self.eventHandler.events.clear()
++		self._deliver(json.dumps(self._text_message(object_id="gone")).encode() + b"\n")
++		self.assertEqual(self.eventHandler.events, [])
++		# Queued under session 1, delivered after session 2 started.
++		self.handler._onReceive(json.dumps(self._text_message()).encode() + b"\n")
++		self.handler._onReceive(self.HANDSHAKE)
++		queueHandler.pumpAll()
++		self.assertEqual(self.eventHandler.events, [])
++
++	def test_text_update_for_a_non_focused_object_updates_it_silently(self):
++		self._deliver(self.HANDSHAKE, self._wire_focus())
++		self.eventHandler.events.clear()
++		self._deliver(json.dumps(self._text_message(object_id="cancel")).encode() + b"\n")
++		self.assertEqual(self.eventHandler.events, [])
++		self.assertEqual(self.handler._objects["cancel"]._node.text, "hello!")
++
++	def test_text_update_before_handshake_is_ignored(self):
++		self._deliver(json.dumps(self._text_message()).encode() + b"\n")
++		self.assertEqual(self.eventHandler.events, [])
++
++
+ if __name__ == "__main__":
+ 	unittest.main()
