@@ -50,7 +50,12 @@ class FocusMessage:
 	objects: tuple[A11yNode, ...]
 
 
-A11yMessage = ProtocolVersionMessage | FocusMessage
+@dataclass(frozen=True)
+class PingMessage:
+	nonce: int
+
+
+A11yMessage = ProtocolVersionMessage | FocusMessage | PingMessage
 
 
 def _boundedString(value: Any, *, limit: int, field: str) -> str:
@@ -148,6 +153,12 @@ def decodeMessage(message: Any) -> A11yMessage:
 			raise ValueError("wrong accessibility channel")
 		return ProtocolVersionMessage(version=version, channel=channel)
 
+	if messageType == "a11y_ping":
+		nonce = message.get("nonce")
+		if type(nonce) is not int or nonce < 0 or nonce > 0x7FFFFFFF:
+			raise ValueError("invalid accessibility heartbeat nonce")
+		return PingMessage(nonce=nonce)
+
 	if messageType != "a11y_focus":
 		raise ValueError("unsupported accessibility message type")
 	focusId = typing.cast(str, _decodeId(message.get("focus_id"), field="focus id"))
@@ -170,6 +181,18 @@ def decodeMessage(message: Any) -> A11yMessage:
 			if nodesById[childId].parentId != node.nodeId:
 				raise ValueError("child id does not identify a child of this object")
 	return FocusMessage(focusId=focusId, objects=objects)
+
+
+def encodePong(nonce: int) -> bytes:
+	if type(nonce) is not int or nonce < 0 or nonce > 0x7FFFFFFF:
+		raise ValueError("invalid accessibility heartbeat nonce")
+	return (
+		json.dumps(
+			{"type": "a11y_pong", "nonce": nonce},
+			separators=(",", ":"),
+		).encode("utf-8")
+		+ b"\n"
+	)
 
 
 def encodeActionRequest(objectId: str, actionIndex: int) -> bytes:
