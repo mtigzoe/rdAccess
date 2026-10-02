@@ -401,8 +401,7 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 
 	def test_ping_after_handshake_replies_without_focus_event(self):
 		wire = (
-			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
-			b'{"type":"a11y_ping","nonce":9}\n'
+			b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n{"type":"a11y_ping","nonce":9}\n'
 		)
 		self.handler._onReceive(wire)
 		queueHandler.pumpAll()

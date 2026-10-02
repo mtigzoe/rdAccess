@@ -140,6 +140,13 @@ def _decodeNode(value: Any) -> A11yNode:
 	)
 
 
+def _decodePing(message: dict[str, Any]) -> PingMessage:
+	nonce = message.get("nonce")
+	if type(nonce) is not int or nonce < 0 or nonce > 0x7FFFFFFF:
+		raise ValueError("invalid accessibility heartbeat nonce")
+	return PingMessage(nonce=nonce)
+
+
 def decodeMessage(message: Any) -> A11yMessage:
 	if not isinstance(message, dict):
 		raise ValueError("message must be an object")
@@ -154,10 +161,7 @@ def decodeMessage(message: Any) -> A11yMessage:
 		return ProtocolVersionMessage(version=version, channel=channel)
 
 	if messageType == "a11y_ping":
-		nonce = message.get("nonce")
-		if type(nonce) is not int or nonce < 0 or nonce > 0x7FFFFFFF:
-			raise ValueError("invalid accessibility heartbeat nonce")
-		return PingMessage(nonce=nonce)
+		return _decodePing(message)
 
 	if messageType != "a11y_focus":
 		raise ValueError("unsupported accessibility message type")
