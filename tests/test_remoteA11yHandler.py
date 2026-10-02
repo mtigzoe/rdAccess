@@ -465,7 +465,6 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 		self.assertEqual(focus.role, Role.UNKNOWN)
 		self.assertEqual(focus.roleText, "custom widget")
 
-
 	# -- reconnect / replay / NVDA focus semantics -------------------------------------------
 	HANDSHAKE = b'{"type":"protocol_version","version":2,"channel":"NVDA-A11Y"}\n'
 
