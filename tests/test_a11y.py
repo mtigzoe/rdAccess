@@ -28,6 +28,12 @@ class A11yMessageTests(unittest.TestCase):
 					"description": "Save changes",
 					"value": "",
 					"actions": ["click", "show menu"],
+					"text_supported": True,
+					"text": "hello world",
+					"text_truncated": False,
+					"caret_offset": 5,
+					"selection_start": 1,
+					"selection_end": 4,
 					"states": ["focused", "focusable"],
 				},
 				{
@@ -78,8 +84,66 @@ class A11yMessageTests(unittest.TestCase):
 		self.assertEqual(message.objects[0].parentId, "dialog")
 		self.assertEqual(message.objects[0].childIds, ())
 		self.assertEqual(message.objects[0].actionNames, ("click", "show menu"))
+		self.assertTrue(message.objects[0].textSupported)
+		self.assertEqual(message.objects[0].text, "hello world")
+		self.assertFalse(message.objects[0].textTruncated)
+		self.assertEqual(message.objects[0].caretOffset, 5)
+		self.assertEqual(message.objects[0].selectionStart, 1)
+		self.assertEqual(message.objects[0].selectionEnd, 4)
 		self.assertEqual(message.objects[0].role, "push button")
 		self.assertEqual(message.objects[0].states, frozenset({"focused", "focusable"}))
+
+	def test_text_defaults_to_unsupported_for_backward_compatibility(self):
+		raw = self._focusMessage()
+		for key in (
+			"text_supported",
+			"text",
+			"text_truncated",
+			"caret_offset",
+			"selection_start",
+			"selection_end",
+		):
+			raw["objects"][0].pop(key, None)
+		message = decodeMessage(raw)
+		node = message.objects[0]
+		self.assertFalse(node.textSupported)
+		self.assertEqual(node.text, "")
+		self.assertIsNone(node.caretOffset)
+
+	def test_empty_text_control_can_have_caret_zero(self):
+		raw = self._focusMessage()
+		raw["objects"][0].update(
+			text_supported=True,
+			text="",
+			text_truncated=False,
+			caret_offset=0,
+			selection_start=None,
+			selection_end=None,
+		)
+		message = decodeMessage(raw)
+		self.assertTrue(message.objects[0].textSupported)
+		self.assertEqual(message.objects[0].caretOffset, 0)
+
+	def test_text_offset_outside_snapshot_is_rejected(self):
+		raw = self._focusMessage()
+		raw["objects"][0]["caret_offset"] = 99
+		with self.assertRaises(ValueError):
+			decodeMessage(raw)
+
+	def test_partial_or_reversed_selection_is_rejected(self):
+		for start, end in ((1, None), (4, 1)):
+			raw = self._focusMessage()
+			raw["objects"][0]["selection_start"] = start
+			raw["objects"][0]["selection_end"] = end
+			with self.subTest(start=start, end=end):
+				with self.assertRaises(ValueError):
+					decodeMessage(raw)
+
+	def test_text_data_without_text_support_is_rejected(self):
+		raw = self._focusMessage()
+		raw["objects"][0]["text_supported"] = False
+		with self.assertRaises(ValueError):
+			decodeMessage(raw)
 
 	def test_actions_default_to_empty_for_backward_compatibility(self):
 		raw = self._focusMessage()
