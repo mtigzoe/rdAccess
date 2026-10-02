@@ -88,7 +88,7 @@ hooks = [
   {
     id = "ruff",
     name = "lint with ruff",
-    args = ["--fix"]
+    args = []
   },
   {
     id = "ruff-format",
