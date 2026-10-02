@@ -140,6 +140,24 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 	def _get_next(self) -> NVDAObjects.NVDAObject | None:
 		return self._sibling(1)
 
+	# NVDA Simple Review Mode normally filters the object tree by
+	# presentationType. Remote AT-SPI snapshots are already intentionally
+	# bounded and should preserve their exact semantic relationships.
+	def _get_simpleParent(self) -> NVDAObjects.NVDAObject | None:
+		return self.parent
+
+	def _get_simpleFirstChild(self) -> NVDAObjects.NVDAObject | None:
+		return self.firstChild
+
+	def _get_simpleLastChild(self) -> NVDAObjects.NVDAObject | None:
+		return self.lastChild
+
+	def _get_simplePrevious(self) -> NVDAObjects.NVDAObject | None:
+		return self.previous
+
+	def _get_simpleNext(self) -> NVDAObjects.NVDAObject | None:
+		return self.next
+
 	def _get_actionCount(self) -> int:
 		return len(self._node.actionNames)
 
