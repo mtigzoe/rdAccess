@@ -47,7 +47,7 @@ Repository = "https://github.com/LeonarddeR/RDAccess.git"
 Issues = "https://github.com/LeonarddeR/RDAccess.git/issues"
 
 [tool.ruff]
-fix = true
+fix = false
 preview = true
 line-length = 110
 
