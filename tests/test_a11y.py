@@ -67,9 +67,8 @@ class A11yMessageTests(unittest.TestCase):
 
 	def test_invalid_ping_nonce_is_rejected(self):
 		for nonce in (-1, True, 0x80000000):
-			with self.subTest(nonce=nonce):
-				with self.assertRaises(ValueError):
-					decodeMessage({"type": "a11y_ping", "nonce": nonce})
+			with self.subTest(nonce=nonce), self.assertRaises(ValueError):
+				decodeMessage({"type": "a11y_ping", "nonce": nonce})
 
 	def test_decodes_focus_snapshot_and_parent_ids(self):
 		message = decodeMessage(self._focusMessage())
