@@ -203,6 +203,16 @@ def _decodeNode(value: Any) -> A11yNode:
 	)
 
 
+def _decodeProtocolVersion(message: dict[str, Any]) -> ProtocolVersionMessage:
+	version = message.get("version")
+	channel = message.get("channel")
+	if type(version) is not int or version != PROTOCOL_VERSION:
+		raise ValueError("unsupported accessibility protocol version")
+	if channel != CHANNEL_NAME:
+		raise ValueError("wrong accessibility channel")
+	return ProtocolVersionMessage(version=version, channel=channel)
+
+
 def _decodePing(message: dict[str, Any]) -> PingMessage:
 	nonce = message.get("nonce")
 	if type(nonce) is not int or nonce < 0 or nonce > 0x7FFFFFFF:
@@ -235,13 +245,7 @@ def decodeMessage(message: Any) -> A11yMessage:
 		raise ValueError("message must be an object")
 	messageType = message.get("type")
 	if messageType == "protocol_version":
-		version = message.get("version")
-		channel = message.get("channel")
-		if type(version) is not int or version != PROTOCOL_VERSION:
-			raise ValueError("unsupported accessibility protocol version")
-		if channel != CHANNEL_NAME:
-			raise ValueError("wrong accessibility channel")
-		return ProtocolVersionMessage(version=version, channel=channel)
+		return _decodeProtocolVersion(message)
 
 	if messageType == "a11y_ping":
 		return _decodePing(message)
