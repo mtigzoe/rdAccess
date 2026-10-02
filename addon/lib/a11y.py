@@ -210,6 +210,26 @@ def _decodePing(message: dict[str, Any]) -> PingMessage:
 	return PingMessage(nonce=nonce)
 
 
+def _decodeTextUpdate(message: dict[str, Any]) -> TextUpdateMessage:
+	objectId = typing.cast(str, _decodeId(message.get("object_id"), field="object id"))
+	event = message.get("event")
+	if event not in ("caret", "textChange"):
+		raise ValueError("unsupported accessibility text event")
+	textSupported, text, textTruncated, caret, selectionStart, selectionEnd = _decodeTextSnapshot(message)
+	if not textSupported:
+		raise ValueError("text update must describe a text-supported object")
+	return TextUpdateMessage(
+		objectId=objectId,
+		event=event,
+		textSupported=textSupported,
+		text=text,
+		textTruncated=textTruncated,
+		caretOffset=caret,
+		selectionStart=selectionStart,
+		selectionEnd=selectionEnd,
+	)
+
+
 def decodeMessage(message: Any) -> A11yMessage:
 	if not isinstance(message, dict):
 		raise ValueError("message must be an object")
@@ -227,23 +247,7 @@ def decodeMessage(message: Any) -> A11yMessage:
 		return _decodePing(message)
 
 	if messageType == "a11y_text":
-		objectId = typing.cast(str, _decodeId(message.get("object_id"), field="object id"))
-		event = message.get("event")
-		if event not in ("caret", "textChange"):
-			raise ValueError("unsupported accessibility text event")
-		textSupported, text, textTruncated, caret, selectionStart, selectionEnd = _decodeTextSnapshot(message)
-		if not textSupported:
-			raise ValueError("text update must describe a text-supported object")
-		return TextUpdateMessage(
-			objectId=objectId,
-			event=event,
-			textSupported=textSupported,
-			text=text,
-			textTruncated=textTruncated,
-			caretOffset=caret,
-			selectionStart=selectionStart,
-			selectionEnd=selectionEnd,
-		)
+		return _decodeTextUpdate(message)
 
 	if messageType != "a11y_focus":
 		raise ValueError("unsupported accessibility message type")
