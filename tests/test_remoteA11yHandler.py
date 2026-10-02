@@ -355,14 +355,14 @@ class RemoteA11yHandlerTests(unittest.TestCase):
 		queueHandler.pumpAll()
 
 		focus = self.eventHandler.events[0][1]
-		self.assertIs(focus.simpleParent, focus.parent)
-		self.assertIs(focus.simpleFirstChild, focus.firstChild)
-		self.assertIs(focus.simpleLastChild, focus.lastChild)
-		self.assertIs(focus.simplePrevious, focus.previous)
-		self.assertIs(focus.simpleNext, focus.next)
-		self.assertEqual(focus.simplePrevious.name, "Cancel")
-		self.assertEqual(focus.simpleNext.name, "Help")
-		self.assertIs(focus.simplePrevious.simpleNext, focus)
+		self.assertIs(focus._get_simpleParent(), focus.parent)
+		self.assertIs(focus._get_simpleFirstChild(), focus.firstChild)
+		self.assertIs(focus._get_simpleLastChild(), focus.lastChild)
+		self.assertIs(focus._get_simplePrevious(), focus.previous)
+		self.assertIs(focus._get_simpleNext(), focus.next)
+		self.assertEqual(focus._get_simplePrevious().name, "Cancel")
+		self.assertEqual(focus._get_simpleNext().name, "Help")
+		self.assertIs(focus._get_simplePrevious()._get_simpleNext(), focus)
 
 	def test_nvda_do_action_sends_remote_action_request(self):
 		wire = (
