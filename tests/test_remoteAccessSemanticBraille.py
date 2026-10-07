@@ -277,10 +277,14 @@ class FakeBuiltInTransport:
 class FakeLeaderSession:
 	def __init__(self):
 		self.callbacksAdded = True
-		self.registeredBrailleInput = 0
+		# The fake starts in active remote control, matching receivingBraille=True.
+		self.registeredBrailleInput = 1
 
 	def registerBrailleInput(self):
 		self.registeredBrailleInput += 1
+
+	def unregisterBrailleInput(self):
+		self.registeredBrailleInput = max(0, self.registeredBrailleInput - 1)
 
 
 class FakeLocalMachine:
@@ -298,6 +302,10 @@ class FakeBuiltInClient:
 
 	def setReceivingBraille(self, state):
 		self.rawReceivingCalls.append(state)
+		if state:
+			self.leaderSession.registerBrailleInput()
+		else:
+			self.leaderSession.unregisterBrailleInput()
 		self.localMachine.receivingBraille = bool(state)
 
 
@@ -322,11 +330,14 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 
 	def test_builtin_hello_is_intercepted_and_enables_nvda_braille_formatter(self):
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1,"origin":17}')
+		self.assertEqual(self.transport.sent, [])
+		queueHandler.pumpAll()
 		self.assertEqual(
 			self.transport.sent,
 			[{"type": "lrd_a11y_capability", "version": 1, "presentation": "nvda"}],
 		)
 		self.assertFalse(self.client.localMachine.receivingBraille)
+		# Negotiation must not register the already-active braille input twice.
 		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 1)
 		self.assertEqual(self.transport.standard, [])
 
@@ -338,21 +349,29 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 
 	def test_semantic_fallback_restores_stock_remote_braille_before_raw_cells(self):
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		queueHandler.pumpAll()
 		self.assertFalse(self.client.localMachine.receivingBraille)
 		self.transport.parse(b'{"type":"lrd_a11y_fallback","version":1}')
+		self.assertFalse(self.client.localMachine.receivingBraille)
+		queueHandler.pumpAll()
 		self.assertTrue(self.client.localMachine.receivingBraille)
-		self.assertEqual(self.client.rawReceivingCalls[-1], True)
+		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 1)
 
 	def test_remote_control_reentry_keeps_nvda_formatter_but_forwards_braille_input(self):
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
-		self.client.localMachine.receivingBraille = True
+		queueHandler.pumpAll()
+		self.client.sendingKeys = False
+		self.client.setReceivingBraille(False)
+		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 0)
+		self.client.sendingKeys = True
 		self.client.setReceivingBraille(True)
 		self.assertFalse(self.client.localMachine.receivingBraille)
-		self.assertGreaterEqual(self.client.leaderSession.registeredBrailleInput, 2)
+		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 1)
 
 	def test_terminate_restores_original_receiving_braille_method_and_state(self):
 		original = self.bridge._originalSetReceivingBraille
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		queueHandler.pumpAll()
 		self.bridge.terminate()
 		self.assertTrue(self.client.localMachine.receivingBraille)
 		self.assertIs(self.client.setReceivingBraille, original)
