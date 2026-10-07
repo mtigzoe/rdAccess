@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import typing
 
 import addonHandler
@@ -31,7 +32,7 @@ _BUILTIN_TYPES = {
 }
 
 
-def _builtinRemoteState() -> tuple[object | None, object | None]:
+def _builtinRemoteState() -> tuple[typing.Any | None, typing.Any | None]:
 	"""Return NVDA's built-in Remote Access client and active leader transport."""
 	try:
 		import _remoteClient
@@ -92,7 +93,11 @@ class RemoteAccessSemanticBrailleBridge:
 	def _installBuiltInTransport(self) -> None:
 		serializer = getattr(self._transport, "serializer", None)
 		originalParse = getattr(self._transport, "parse", None)
-		if serializer is None or not callable(getattr(serializer, "deserialize", None)) or not callable(originalParse):
+		if (
+			serializer is None
+			or not callable(getattr(serializer, "deserialize", None))
+			or not callable(originalParse)
+		):
 			raise TypeError("Remote Access transport has no supported inbound extension surface")
 		self._originalParse = originalParse
 
@@ -172,7 +177,7 @@ class RemoteAccessSemanticBrailleBridge:
 			except Exception:
 				log.debugWarning("Could not restore raw Remote Access braille", exc_info=True)
 
-	def _onHello(self, version=None, **kwargs):
+	def _onHello(self, version=None, **_kwargs):
 		if self._terminated or version != NATIVE_BRAILLE_VERSION:
 			return
 		self._session += 1
@@ -192,7 +197,7 @@ class RemoteAccessSemanticBrailleBridge:
 			return
 		self._activateNativeBraille()
 
-	def _onFallback(self, version=None, **kwargs):
+	def _onFallback(self, version=None, **_kwargs):
 		if self._terminated or version != NATIVE_BRAILLE_VERSION:
 			return
 		if not self._negotiated:
@@ -203,7 +208,7 @@ class RemoteAccessSemanticBrailleBridge:
 		self._lastNode = None
 		self._restoreRawBraille()
 
-	def _onFocus(self, version=None, focus_id=None, objects=None, **kwargs):
+	def _onFocus(self, version=None, focus_id=None, objects=None, **_kwargs):
 		if self._terminated or not self._negotiated or version != NATIVE_BRAILLE_VERSION:
 			return
 		try:
@@ -307,7 +312,10 @@ class RemoteAccessSemanticBrailleBridge:
 
 		if self._client is not None and self._originalSetReceivingBraille is not None:
 			try:
-				if getattr(self._client, "setReceivingBraille", None) is not self._originalSetReceivingBraille:
+				if (
+					getattr(self._client, "setReceivingBraille", None)
+					is not self._originalSetReceivingBraille
+				):
 					self._client.setReceivingBraille = self._originalSetReceivingBraille
 			except Exception:
 				pass
@@ -326,10 +334,8 @@ class RemoteAccessSemanticBrailleBridge:
 				(_FOCUS_CALLBACK, self._onFocus),
 				(_FALLBACK_CALLBACK, self._onFallback),
 			):
-				try:
+				with contextlib.suppress(Exception):
 					unregister(name, callback)
-				except Exception:
-					pass
 
 
 def _candidateTransports(plugin) -> typing.Iterator[object]:
