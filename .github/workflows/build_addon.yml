@@ -46,6 +46,10 @@ jobs:
     - name: Code checks
       run: $env:SKIP = "no-commit-to-branch"; uv run prek run --all-files
 
+    - name: Show formatter changes
+      if: failure()
+      run: git diff -- addon/globalPlugins/rdAccess/handlers/remoteAccessSemanticBraille.py tests/test_remoteAccessSemanticBraille.py addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py
+
     - name: building addon
       run: uv run scons && uv run scons pot
 
