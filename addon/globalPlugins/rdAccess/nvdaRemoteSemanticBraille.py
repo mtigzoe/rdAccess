@@ -35,6 +35,7 @@ CUSTOM_HELLO = "lrd_a11y_hello"
 CUSTOM_CAPABILITY = "lrd_a11y_capability"
 CUSTOM_FOCUS = "lrd_a11y_focus"
 CUSTOM_TEXT = "lrd_a11y_text"
+CUSTOM_FALLBACK = "lrd_a11y_fallback"
 CUSTOM_VERSION = 1
 _MAX_CUSTOM_LINE_BYTES = 64 * 1024
 
@@ -76,6 +77,9 @@ class NvdaRemoteSemanticBraille:
 						return
 					if messageType in (CUSTOM_FOCUS, CUSTOM_TEXT):
 						bridge._handleSemanticMessage(obj)
+						return
+					if messageType == CUSTOM_FALLBACK:
+						bridge._handleFallback(obj)
 						return
 			return original(transport, line)
 
@@ -142,8 +146,6 @@ class NvdaRemoteSemanticBraille:
 		wx.CallAfter(self._applyMessage, message)
 
 	def _setNativeBraille(self, active: bool) -> None:
-		if self._nativeBrailleActive == active:
-			return
 		try:
 			import _remoteClient
 			client = getattr(_remoteClient, "_remoteClient", None)
@@ -153,11 +155,28 @@ class NvdaRemoteSemanticBraille:
 			# Do not call RemoteClient.setReceivingBraille(False): that would
 			# unregister braille input gestures. Only switch the presentation
 			# source so NVDA's own formatter can own the physical display.
-			localMachine.receivingBraille = not active
+			#
+			# Re-apply this even when _nativeBrailleActive already matches:
+			# switching local -> remote control makes stock Remote Access set
+			# receivingBraille=True again before the next semantic snapshot.
+			# A semantic update must always restore NVDA-owned formatting.
+			if active:
+				localMachine.receivingBraille = False
+			else:
+				# Raw remote cells are wanted only while controlling the remote
+				# computer. Do not turn remote braille on while local control is active.
+				localMachine.receivingBraille = bool(getattr(client, "sendingKeys", False))
 		except Exception:
 			log.debugWarning("Unable to switch NVDA Remote braille presentation mode", exc_info=True)
 			return
 		self._nativeBrailleActive = active
+
+	def _handleFallback(self, payload: dict[str, typing.Any]) -> None:
+		"""Restore stock raw-cell Remote Access braille for this negotiated session."""
+		if payload.get("version") != CUSTOM_VERSION:
+			return
+		self._objects.clear()
+		self._setNativeBraille(False)
 
 	def _applyMessage(self, message: a11y.FocusMessage | a11y.TextUpdateMessage) -> None:
 		if isinstance(message, a11y.TextUpdateMessage):
