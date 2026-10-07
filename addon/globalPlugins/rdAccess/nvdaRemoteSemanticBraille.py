@@ -47,6 +47,7 @@ class NvdaRemoteSemanticBraille:
 		self._objects: dict[str, RemoteA11yObject] = {}
 		self._session = 0
 		self._nativeBrailleActive = False
+		self._negotiated = False
 		self._focusId: str | None = None
 		self._lastNode = None
 		self._installed = False
@@ -108,6 +109,7 @@ class NvdaRemoteSemanticBraille:
 			setattr(remoteTransport.TCPTransport, "parse", originalParse)
 		self._setNativeBraille(False)
 		self._objects.clear()
+		self._negotiated = False
 		self._focusId = None
 		self._lastNode = None
 		self._installed = False
@@ -127,12 +129,14 @@ class NvdaRemoteSemanticBraille:
 			if queue is None:
 				return
 			queue.put(data)
+			self._negotiated = True
 		except Exception:
+			self._negotiated = False
 			log.debugWarning("Unable to acknowledge linux-rdaccess semantic braille", exc_info=True)
 
 	def _handleSemanticMessage(self, payload: dict[str, typing.Any]) -> None:
 		messageType = payload.get("type")
-		if payload.get("version") != CUSTOM_VERSION:
+		if not self._negotiated or payload.get("version") != CUSTOM_VERSION:
 			return
 		translated = dict(payload)
 		if messageType == CUSTOM_FOCUS:
@@ -177,8 +181,9 @@ class NvdaRemoteSemanticBraille:
 
 	def _handleFallback(self, payload: dict[str, typing.Any]) -> None:
 		"""Restore stock raw-cell Remote Access braille for this negotiated session."""
-		if payload.get("version") != CUSTOM_VERSION:
+		if not self._negotiated or payload.get("version") != CUSTOM_VERSION:
 			return
+		self._negotiated = False
 		self._objects.clear()
 		self._focusId = None
 		self._lastNode = None
