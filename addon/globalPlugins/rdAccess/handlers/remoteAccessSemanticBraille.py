@@ -339,6 +339,19 @@ class RemoteAccessSemanticBrailleBridge:
 
 		previousFocusId = self._focusId
 		previousNode = self._lastNode
+		if previousFocusId == message.focusId:
+			# NVDA's handleUpdate finds an existing region by object equality but
+			# updates region.obj, not the new object argument. Rebind semantic
+			# regions to this snapshot so names, values, text and caret state do
+			# not remain one snapshot behind while preserving the braille window.
+			mainBuffer = getattr(handler, "mainBuffer", None)
+			for region in getattr(mainBuffer, "regions", ()):
+				oldObj = getattr(region, "obj", None)
+				if not isinstance(oldObj, RemoteA11yObject) or oldObj._session != session:
+					continue
+				newObj = objects.get(oldObj._node.nodeId)
+				if newObj is not None:
+					region.obj = newObj
 		self._objects = objects
 		self._focusId = message.focusId
 		self._lastNode = focus._node
