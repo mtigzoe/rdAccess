@@ -208,6 +208,15 @@ class RemoteAccessSemanticBrailleBridge:
 				if localMachine is not None:
 					if state:
 						self._installSemanticBrailleInput()
+						# A capability ACK doubles as a safe refresh request on Linux.
+						# This is needed when the session stayed connected while the
+						# user temporarily returned to local Windows control.
+						with contextlib.suppress(Exception):
+							self._transport.send(
+								type="lrd_a11y_capability",
+								version=NATIVE_BRAILLE_VERSION,
+								presentation="nvda",
+							)
 					else:
 						self._removeSemanticBrailleInput(restoreStock=False)
 					localMachine.receivingBraille = False
@@ -303,6 +312,10 @@ class RemoteAccessSemanticBrailleBridge:
 
 	def _presentOnMainThread(self, session: int, message: a11y.FocusMessage) -> None:
 		if self._terminated or session != self._session:
+			return
+		if self._client is not None and not getattr(self._client, "sendingKeys", False):
+			# Stay completely out of the local Windows braille display while
+			# Remote Access is connected but keyboard control is local.
 			return
 		handler = braille.handler
 		if handler is None:
