@@ -106,7 +106,7 @@ class NvdaRemoteSemanticBraille:
 			and originalParse is not None
 			and remoteTransport.TCPTransport.parse is self._patchedParse
 		):
-			setattr(remoteTransport.TCPTransport, "parse", originalParse)
+			setattr(remoteTransport.TCPTransport, "parse", originalParse)  # noqa: B010
 		self._setNativeBraille(False)
 		self._objects.clear()
 		self._negotiated = False
@@ -164,6 +164,7 @@ class NvdaRemoteSemanticBraille:
 	def _setNativeBraille(self, active: bool) -> None:
 		try:
 			import _remoteClient
+
 			client = getattr(_remoteClient, "_remoteClient", None)
 			localMachine = getattr(client, "localMachine", None)
 			if localMachine is None:
@@ -245,14 +246,11 @@ class NvdaRemoteSemanticBraille:
 			if previousFocusId != message.focusId:
 				braille.handler.handleGainFocus(focus)
 				return
-			caretChanged = (
-				previousNode is not None
-				and (
-					previousNode.text != focus._node.text
-					or previousNode.caretOffset != focus._node.caretOffset
-					or previousNode.selectionStart != focus._node.selectionStart
-					or previousNode.selectionEnd != focus._node.selectionEnd
-				)
+			caretChanged = previousNode is not None and (
+				previousNode.text != focus._node.text
+				or previousNode.caretOffset != focus._node.caretOffset
+				or previousNode.selectionStart != focus._node.selectionStart
+				or previousNode.selectionEnd != focus._node.selectionEnd
 			)
 			if caretChanged and callable(getattr(braille.handler, "handleCaretMove", None)):
 				braille.handler.handleCaretMove(focus)
