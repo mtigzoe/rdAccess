@@ -99,7 +99,7 @@ class NvdaRemoteSemanticBraille:
 			and originalParse is not None
 			and remoteTransport.TCPTransport.parse is self._patchedParse
 		):
-			remoteTransport.TCPTransport.parse = originalParse
+			setattr(remoteTransport.TCPTransport, "parse", originalParse)
 		self._setNativeBraille(False)
 		self._objects.clear()
 		self._installed = False
