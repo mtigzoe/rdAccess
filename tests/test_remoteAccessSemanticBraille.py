@@ -279,12 +279,30 @@ class FakeLeaderSession:
 		self.callbacksAdded = True
 		# The fake starts in active remote control, matching receivingBraille=True.
 		self.registeredBrailleInput = 1
+		self.forwarded = []
 
 	def registerBrailleInput(self):
 		self.registeredBrailleInput += 1
 
 	def unregisterBrailleInput(self):
 		self.registeredBrailleInput = max(0, self.registeredBrailleInput - 1)
+
+	def handleDecideExecuteGesture(self, gesture):
+		self.forwarded.append(gesture)
+		return False
+
+
+class FakeDecider:
+	def __init__(self):
+		self.handlers = []
+
+	def register(self, handler):
+		if handler not in self.handlers:
+			self.handlers.append(handler)
+
+	def unregister(self, handler):
+		if handler in self.handlers:
+			self.handlers.remove(handler)
 
 
 class FakeLocalMachine:
@@ -322,10 +340,14 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		self.remoteModule._remoteClient = self.client
 		self.patch = mock.patch.dict(sys.modules, {"_remoteClient": self.remoteModule})
 		self.patch.start()
+		self.decider = FakeDecider()
+		self.originalDecider = self.module.inputCore.decide_executeGesture
+		self.module.inputCore.decide_executeGesture = self.decider
 		self.bridge = self.module.RemoteAccessSemanticBrailleBridge(self.transport)
 
 	def tearDown(self):
 		self.bridge.terminate()
+		self.module.inputCore.decide_executeGesture = self.originalDecider
 		self.patch.stop()
 
 	def test_builtin_hello_is_intercepted_and_enables_nvda_braille_formatter(self):
@@ -337,8 +359,9 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 			[{"type": "lrd_a11y_capability", "version": 1, "presentation": "nvda"}],
 		)
 		self.assertFalse(self.client.localMachine.receivingBraille)
-		# Negotiation must not register the already-active braille input twice.
-		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 1)
+		# Semantic mode replaces stock forwarding with its coordinate-aware decider.
+		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 0)
+		self.assertIn(self.bridge._handleSemanticBrailleGesture, self.decider.handlers)
 		self.assertEqual(self.transport.standard, [])
 
 	def test_standard_remote_access_message_is_delegated_unchanged(self):
@@ -356,6 +379,7 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		queueHandler.pumpAll()
 		self.assertTrue(self.client.localMachine.receivingBraille)
 		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 1)
+		self.assertNotIn(self.bridge._handleSemanticBrailleGesture, self.decider.handlers)
 
 	def test_remote_control_reentry_keeps_nvda_formatter_but_forwards_braille_input(self):
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
@@ -366,7 +390,53 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		self.client.sendingKeys = True
 		self.client.setReceivingBraille(True)
 		self.assertFalse(self.client.localMachine.receivingBraille)
-		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 1)
+		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 0)
+		self.assertIn(self.bridge._handleSemanticBrailleGesture, self.decider.handlers)
+
+	def test_semantic_caret_uses_extension_message(self):
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		queueHandler.pumpAll()
+		self.bridge._sendCaret("editor", 7)
+		self.assertEqual(
+			self.transport.sent[-1],
+			{
+				"type": "lrd_a11y_caret",
+				"version": 1,
+				"object_id": "editor",
+				"offset": 7,
+			},
+		)
+
+	def test_coordinate_braille_commands_stay_local_but_typing_forwards(self):
+		commands = types.SimpleNamespace()
+		for name in (
+			"script_braille_toggleTether",
+			"script_braille_cycleReviewRoutingMovesSystemCaret",
+			"script_braille_toggleFocusContextPresentation",
+			"script_braille_toggleShowCursor",
+			"script_braille_toggleSpeakOnRouting",
+			"script_braille_cycleCursorShape",
+			"script_braille_cycleShowMessages",
+			"script_braille_cycleShowSelection",
+			"script_braille_cycleUnicodeNormalization",
+			"script_braille_scrollBack",
+			"script_braille_scrollForward",
+			"script_braille_routeTo",
+			"script_braille_reportFormatting",
+			"script_braille_selectRange",
+			"script_braille_previousLine",
+			"script_braille_nextLine",
+		):
+			setattr(commands, name, object())
+		globalCommands = types.ModuleType("globalCommands")
+		globalCommands.commands = commands
+		with mock.patch.dict(sys.modules, {"globalCommands": globalCommands}):
+			localGesture = types.SimpleNamespace(script=commands.script_braille_routeTo)
+			self.assertTrue(self.bridge._handleSemanticBrailleGesture(localGesture))
+			self.assertEqual(self.client.leaderSession.forwarded, [])
+			remoteGesture = types.SimpleNamespace(script=object())
+			self.assertFalse(self.bridge._handleSemanticBrailleGesture(remoteGesture))
+			self.assertEqual(self.client.leaderSession.forwarded, [remoteGesture])
 
 	def test_terminate_restores_original_receiving_braille_method_and_state(self):
 		original = self.bridge._originalSetReceivingBraille
