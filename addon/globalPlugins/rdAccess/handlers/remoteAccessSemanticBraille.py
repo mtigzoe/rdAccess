@@ -115,11 +115,12 @@ class RemoteAccessSemanticBrailleBridge:
 			# not part of the semantic payload.
 			payload.pop("origin", None)
 			if messageType == "lrd_a11y_hello":
-				self._onHello(**payload)
+				handler = self._onHello
 			elif messageType == "lrd_a11y_focus":
-				self._onFocus(**payload)
+				handler = self._onFocus
 			else:
-				self._onFallback(**payload)
+				handler = self._onFallback
+			queueHandler.queueFunction(queueHandler.eventQueue, handler, **payload)
 
 		self._installedParse = parse
 		self._transport.parse = parse
@@ -159,21 +160,31 @@ class RemoteAccessSemanticBrailleBridge:
 		if getattr(client, "leaderTransport", None) is not self._transport:
 			return
 		if getattr(client, "sendingKeys", False):
+			localMachine = getattr(client, "localMachine", None)
+			if localMachine is None:
+				return
 			try:
-				client.setReceivingBraille(True)
+				# Stock Remote Access already registered braille input when remote
+				# control was entered. Only return presentation ownership to NVDA;
+				# registering input again can duplicate forwarded gestures.
+				localMachine.receivingBraille = False
 			except Exception:
 				log.debugWarning("Could not enable NVDA-native remote braille", exc_info=True)
 
 	def _restoreRawBraille(self) -> None:
 		client = self._client
-		original = self._originalSetReceivingBraille
-		if client is None or original is None:
+		if client is None:
 			return
 		if getattr(client, "leaderTransport", None) is not self._transport:
 			return
 		if getattr(client, "sendingKeys", False):
+			localMachine = getattr(client, "localMachine", None)
+			if localMachine is None:
+				return
 			try:
-				original(True)
+				# Braille input remains registered while controlling remotely, so
+				# restoring stock cell presentation only needs to flip ownership.
+				localMachine.receivingBraille = True
 			except Exception:
 				log.debugWarning("Could not restore raw Remote Access braille", exc_info=True)
 
