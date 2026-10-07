@@ -6,6 +6,7 @@ import pathlib
 import sys
 import types
 import unittest
+from unittest import mock
 
 import braille
 import queueHandler
@@ -311,7 +312,7 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		self.client = FakeBuiltInClient(self.transport)
 		self.remoteModule = types.ModuleType("_remoteClient")
 		self.remoteModule._remoteClient = self.client
-		self.patch = unittest.mock.patch.dict(sys.modules, {"_remoteClient": self.remoteModule})
+		self.patch = mock.patch.dict(sys.modules, {"_remoteClient": self.remoteModule})
 		self.patch.start()
 		self.bridge = self.module.RemoteAccessSemanticBrailleBridge(self.transport)
 
