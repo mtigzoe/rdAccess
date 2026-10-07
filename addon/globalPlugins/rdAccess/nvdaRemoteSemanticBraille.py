@@ -119,6 +119,14 @@ class NvdaRemoteSemanticBraille:
 			return
 		if not getattr(transport, "connected", False):
 			return
+		# A fresh Linux hello is a new semantic session. Until a valid new
+		# snapshot arrives, use stock raw Remote Access braille and forget all
+		# object/caret state from the previous connection.
+		self._negotiated = False
+		self._objects.clear()
+		self._focusId = None
+		self._lastNode = None
+		self._setNativeBraille(False)
 		try:
 			data = transport.serializer.serialize(
 				type=CUSTOM_CAPABILITY,
