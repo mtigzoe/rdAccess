@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import sys
 import types
@@ -250,6 +251,113 @@ class TransportDiscoveryTests(unittest.TestCase):
 		plugin = OtherPlugin()
 		plugin.transport = transport
 		self.assertIsNone(self.module.findRemoteAccessTransport([plugin]))
+
+
+class FakeSerializer:
+	def deserialize(self, data):
+		if isinstance(data, bytes):
+			data = data.decode("utf-8")
+		return json.loads(data)
+
+
+class FakeBuiltInTransport:
+	def __init__(self):
+		self.serializer = FakeSerializer()
+		self.sent = []
+		self.standard = []
+
+	def send(self, type=None, **kwargs):
+		self.sent.append({"type": type, **kwargs})
+
+	def parse(self, line):
+		self.standard.append(line)
+
+
+class FakeLeaderSession:
+	def __init__(self):
+		self.callbacksAdded = True
+		self.registeredBrailleInput = 0
+
+	def registerBrailleInput(self):
+		self.registeredBrailleInput += 1
+
+
+class FakeLocalMachine:
+	def __init__(self):
+		self.receivingBraille = True
+
+
+class FakeBuiltInClient:
+	def __init__(self, transport):
+		self.leaderTransport = transport
+		self.leaderSession = FakeLeaderSession()
+		self.localMachine = FakeLocalMachine()
+		self.sendingKeys = True
+		self.rawReceivingCalls = []
+
+	def setReceivingBraille(self, state):
+		self.rawReceivingCalls.append(state)
+		self.localMachine.receivingBraille = bool(state)
+
+
+class BuiltInRemoteAccessTests(unittest.TestCase):
+	@classmethod
+	def setUpClass(cls):
+		install_handler_runtime_stubs()
+		cls.module = load_bridge_module()
+
+	def setUp(self):
+		self.transport = FakeBuiltInTransport()
+		self.client = FakeBuiltInClient(self.transport)
+		self.remoteModule = types.ModuleType("_remoteClient")
+		self.remoteModule._remoteClient = self.client
+		self.patch = unittest.mock.patch.dict(sys.modules, {"_remoteClient": self.remoteModule})
+		self.patch.start()
+		self.bridge = self.module.RemoteAccessSemanticBrailleBridge(self.transport)
+
+	def tearDown(self):
+		self.bridge.terminate()
+		self.patch.stop()
+
+	def test_builtin_hello_is_intercepted_and_enables_nvda_braille_formatter(self):
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1,"origin":17}')
+		self.assertEqual(
+			self.transport.sent,
+			[{"type": "lrd_a11y_capability", "version": 1, "presentation": "nvda"}],
+		)
+		self.assertFalse(self.client.localMachine.receivingBraille)
+		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 1)
+		self.assertEqual(self.transport.standard, [])
+
+	def test_standard_remote_access_message_is_delegated_unchanged(self):
+		line = b'{"type":"speak","sequence":["hello"]}'
+		self.transport.parse(line)
+		self.assertEqual(self.transport.standard, [line])
+		self.assertEqual(self.transport.sent, [])
+
+	def test_semantic_fallback_restores_stock_remote_braille_before_raw_cells(self):
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		self.assertFalse(self.client.localMachine.receivingBraille)
+		self.transport.parse(b'{"type":"lrd_a11y_fallback","version":1}')
+		self.assertTrue(self.client.localMachine.receivingBraille)
+		self.assertEqual(self.client.rawReceivingCalls[-1], True)
+
+	def test_remote_control_reentry_keeps_nvda_formatter_but_forwards_braille_input(self):
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		self.client.localMachine.receivingBraille = True
+		self.client.setReceivingBraille(True)
+		self.assertFalse(self.client.localMachine.receivingBraille)
+		self.assertGreaterEqual(self.client.leaderSession.registeredBrailleInput, 2)
+
+	def test_terminate_restores_original_receiving_braille_method_and_state(self):
+		original = self.bridge._originalSetReceivingBraille
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		self.bridge.terminate()
+		self.assertTrue(self.client.localMachine.receivingBraille)
+		self.assertIs(self.client.setReceivingBraille, original)
+
+	def test_builtin_transport_is_discovered_without_global_plugin_wrapper(self):
+		self.assertIs(self.module.findRemoteAccessTransport([]), self.transport)
 
 
 if __name__ == "__main__":
