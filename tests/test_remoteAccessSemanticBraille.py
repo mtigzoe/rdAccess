@@ -398,6 +398,40 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 1)
 		self.assertNotIn(self.bridge._handleSemanticBrailleGesture, self.decider.handlers)
 
+	def test_semantic_focus_does_not_replace_local_windows_braille(self):
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		queueHandler.pumpAll()
+		self.client.sendingKeys = False
+		objects = [
+			{
+				"id": "button",
+				"parent_id": None,
+				"child_ids": [],
+				"name": "Remote button",
+				"role": "push button",
+				"description": "",
+				"value": "",
+				"actions": ["click"],
+				"text_supported": False,
+				"text": "",
+				"text_truncated": False,
+				"caret_offset": None,
+				"selection_start": None,
+				"selection_end": None,
+				"states": ["focused"],
+				"bounds": None,
+			},
+		]
+		message = {
+			"type": "lrd_a11y_focus",
+			"version": 1,
+			"focus_id": "button",
+			"objects": objects,
+		}
+		self.transport.parse(json.dumps(message).encode("utf-8"))
+		queueHandler.pumpAll()
+		self.assertEqual(braille.handler.focused, [])
+
 	def test_remote_control_reentry_keeps_nvda_formatter_but_forwards_braille_input(self):
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
 		queueHandler.pumpAll()
@@ -405,10 +439,15 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		self.client.setReceivingBraille(False)
 		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 0)
 		self.client.sendingKeys = True
+		before = len(self.transport.sent)
 		self.client.setReceivingBraille(True)
 		self.assertFalse(self.client.localMachine.receivingBraille)
 		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 0)
 		self.assertIn(self.bridge._handleSemanticBrailleGesture, self.decider.handlers)
+		self.assertEqual(
+			self.transport.sent[before:],
+			[{"type": "lrd_a11y_capability", "version": 1, "presentation": "nvda"}],
+		)
 
 	def test_semantic_caret_uses_extension_message(self):
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
