@@ -15,5 +15,5 @@ jobs:
       - name: Show Ruff formatting diff
         shell: pwsh
         run: |
-          uv run ruff format addon/globalPlugins/rdAccess/handlers/remoteAccessSemanticBraille.py tests/test_remoteAccessSemanticBraille.py addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py tests/test_remoteA11yObject.py
-          git diff -- addon/globalPlugins/rdAccess/handlers/remoteAccessSemanticBraille.py tests/test_remoteAccessSemanticBraille.py addon/globalPlugins/rdAccess/handlers/remoteA11yHandler.py tests/test_remoteA11yObject.py
+          uv run ruff format .
+          git diff
