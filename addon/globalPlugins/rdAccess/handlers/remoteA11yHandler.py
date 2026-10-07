@@ -91,6 +91,17 @@ class RemoteA11yTextInfo(NVDAObjects.NVDAObjectTextInfo):
 			return node.caretOffset, node.caretOffset
 		raise NotImplementedError
 
+	def _setCaretOffset(self, offset: int) -> None:
+		obj = self._remoteObj
+		if (
+			obj._caretSender is None
+			or not obj._node.textSupported
+			or type(offset) is not int
+			or not 0 <= offset <= len(obj._node.text)
+		):
+			raise NotImplementedError
+		obj._caretSender(obj._node.nodeId, offset)
+
 	def allowMoveToUnitOffsetPastEnd(self, unit: str) -> bool:  # noqa: ARG002
 		return self._remoteObj._node.textSupported
 
@@ -110,6 +121,7 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 		parentObject: NVDAObjects.NVDAObject | None,
 		objectMap: dict[str, RemoteA11yObject],
 		actionSender: typing.Callable[[str, int], None],
+		caretSender: typing.Callable[[str, int], None] | None = None,
 		session: int = 0,
 	):
 		super().__init__()
@@ -119,6 +131,7 @@ class RemoteA11yObject(NVDAObjects.NVDAObject):
 		self._parentObject = parentObject
 		self._objectMap = objectMap
 		self._actionSender = actionSender
+		self._caretSender = caretSender
 		self.remoteBounds = node.bounds
 		self.remoteTextTruncated = node.textTruncated
 
