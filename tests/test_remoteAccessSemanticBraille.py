@@ -46,9 +46,11 @@ class FakeBrailleHandler:
 		self.focused = []
 		self.updated = []
 		self.caret = []
+		self.mainBuffer = types.SimpleNamespace(regions=[])
 
 	def handleGainFocus(self, obj):
 		self.focused.append(obj)
+		self.mainBuffer.regions = [types.SimpleNamespace(obj=obj)]
 
 	def handleUpdate(self, obj):
 		self.updated.append(obj)
@@ -102,7 +104,7 @@ class SemanticBrailleBridgeTests(unittest.TestCase):
 		queueHandler.queuedFunctions.clear()
 		braille.handler = None
 
-	def _node(self, *, text="", caret=None):
+	def _node(self, *, text="", caret=None, value=""):
 		return {
 			"id": "save",
 			"parent_id": "dialog",
@@ -110,7 +112,7 @@ class SemanticBrailleBridgeTests(unittest.TestCase):
 			"name": "Apply changes",
 			"role": "push button",
 			"description": "Commit settings",
-			"value": "",
+			"value": value,
 			"actions": ["click"],
 			"text_supported": bool(text),
 			"text": text,
@@ -122,9 +124,9 @@ class SemanticBrailleBridgeTests(unittest.TestCase):
 			"bounds": None,
 		}
 
-	def _objects(self, *, text="", caret=None):
+	def _objects(self, *, text="", caret=None, value=""):
 		return [
-			self._node(text=text, caret=caret),
+			self._node(text=text, caret=caret, value=value),
 			{
 				"id": "dialog",
 				"parent_id": None,
@@ -183,6 +185,16 @@ class SemanticBrailleBridgeTests(unittest.TestCase):
 		self.assertEqual(len(self.brailleHandler.focused), 1)
 		self.assertEqual(len(self.brailleHandler.updated), 1)
 		self.assertEqual(self.brailleHandler.caret, [])
+
+	def test_same_focus_rebinds_existing_region_to_fresh_semantic_object(self):
+		self.negotiate()
+		self.sendFocus(value="old")
+		oldObj = self.brailleHandler.mainBuffer.regions[-1].obj
+		self.sendFocus(value="new")
+		newObj = self.brailleHandler.mainBuffer.regions[-1].obj
+		self.assertIsNot(newObj, oldObj)
+		self.assertEqual(newObj._node.value, "new")
+		self.assertIs(self.brailleHandler.updated[-1], newObj)
 
 	def test_same_text_focus_caret_change_uses_nvda_caret_braille_path(self):
 		self.negotiate()
