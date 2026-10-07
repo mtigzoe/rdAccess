@@ -9,6 +9,7 @@ import typing
 
 import addonHandler
 import braille
+import inputCore
 import queueHandler
 from logHandler import log
 
@@ -76,6 +77,7 @@ class RemoteAccessSemanticBrailleBridge:
 		self._installedParse = None
 		self._client = None
 		self._originalSetReceivingBraille = None
+		self._semanticBrailleInputInstalled = False
 
 		if self._manager is not None and callable(getattr(self._manager, "register_callback", None)):
 			self._manager.register_callback(_HELLO_CALLBACK, self._onHello)
@@ -125,6 +127,71 @@ class RemoteAccessSemanticBrailleBridge:
 		self._installedParse = parse
 		self._transport.parse = parse
 
+	def _leaderSession(self):
+		client = self._client
+		if client is None or getattr(client, "leaderTransport", None) is not self._transport:
+			return None
+		return getattr(client, "leaderSession", None)
+
+	def _handleSemanticBrailleGesture(self, gesture) -> bool:
+		"""Keep NVDA-coordinate braille commands local; forward other gestures."""
+		try:
+			from globalCommands import commands
+		except Exception:
+			return True
+		localScripts = {
+			commands.script_braille_toggleTether,
+			commands.script_braille_cycleReviewRoutingMovesSystemCaret,
+			commands.script_braille_toggleFocusContextPresentation,
+			commands.script_braille_toggleShowCursor,
+			commands.script_braille_toggleSpeakOnRouting,
+			commands.script_braille_cycleCursorShape,
+			commands.script_braille_cycleShowMessages,
+			commands.script_braille_cycleShowSelection,
+			commands.script_braille_cycleUnicodeNormalization,
+			commands.script_braille_scrollBack,
+			commands.script_braille_scrollForward,
+			commands.script_braille_routeTo,
+			commands.script_braille_reportFormatting,
+			commands.script_braille_selectRange,
+			commands.script_braille_previousLine,
+			commands.script_braille_nextLine,
+		}
+		if getattr(gesture, "script", None) in localScripts:
+			return True
+		session = self._leaderSession()
+		forward = getattr(session, "handleDecideExecuteGesture", None)
+		if callable(forward):
+			return forward(gesture)
+		return True
+
+	def _installSemanticBrailleInput(self) -> None:
+		if self._semanticBrailleInputInstalled:
+			return
+		session = self._leaderSession()
+		if session is None:
+			return
+		# Replace stock Remote Access's all-gesture forwarding while semantic
+		# presentation is active. Otherwise NVDA-local routing coordinates would
+		# be misinterpreted as Orca raw-cell coordinates on Linux.
+		with contextlib.suppress(Exception):
+			session.unregisterBrailleInput()
+		inputCore.decide_executeGesture.register(self._handleSemanticBrailleGesture)
+		self._semanticBrailleInputInstalled = True
+
+	def _removeSemanticBrailleInput(self, *, restoreStock: bool) -> None:
+		if self._semanticBrailleInputInstalled:
+			with contextlib.suppress(Exception):
+				inputCore.decide_executeGesture.unregister(self._handleSemanticBrailleGesture)
+			self._semanticBrailleInputInstalled = False
+		if not restoreStock:
+			return
+		session = self._leaderSession()
+		client = self._client
+		if session is not None and client is not None and getattr(client, "sendingKeys", False):
+			with contextlib.suppress(Exception):
+				session.registerBrailleInput()
+
 	def _installBuiltInBrailleOwnership(self) -> None:
 		client, leaderTransport = _builtinRemoteState()
 		if client is None or leaderTransport is not self._transport:
@@ -136,17 +203,13 @@ class RemoteAccessSemanticBrailleBridge:
 		self._originalSetReceivingBraille = original
 
 		def setReceivingBraille(state):
-			if state and self._negotiated and getattr(client, "leaderTransport", None) is self._transport:
-				session = getattr(client, "leaderSession", None)
+			if self._negotiated and getattr(client, "leaderTransport", None) is self._transport:
 				localMachine = getattr(client, "localMachine", None)
-				if (
-					session is not None
-					and getattr(session, "callbacksAdded", False)
-					and localMachine is not None
-				):
-					# Keep display gestures routed to the Linux follower, but
-					# leave NVDA's own braille formatter enabled.
-					session.registerBrailleInput()
+				if localMachine is not None:
+					if state:
+						self._installSemanticBrailleInput()
+					else:
+						self._removeSemanticBrailleInput(restoreStock=False)
 					localMachine.receivingBraille = False
 					return
 			return original(state)
@@ -164,9 +227,7 @@ class RemoteAccessSemanticBrailleBridge:
 			if localMachine is None:
 				return
 			try:
-				# Stock Remote Access already registered braille input when remote
-				# control was entered. Only return presentation ownership to NVDA;
-				# registering input again can duplicate forwarded gestures.
+				self._installSemanticBrailleInput()
 				localMachine.receivingBraille = False
 			except Exception:
 				log.debugWarning("Could not enable NVDA-native remote braille", exc_info=True)
@@ -182,8 +243,7 @@ class RemoteAccessSemanticBrailleBridge:
 			if localMachine is None:
 				return
 			try:
-				# Braille input remains registered while controlling remotely, so
-				# restoring stock cell presentation only needs to flip ownership.
+				self._removeSemanticBrailleInput(restoreStock=True)
 				localMachine.receivingBraille = True
 			except Exception:
 				log.debugWarning("Could not restore raw Remote Access braille", exc_info=True)
@@ -263,6 +323,7 @@ class RemoteAccessSemanticBrailleBridge:
 				parentObject=parent,
 				objectMap=objects,
 				actionSender=self._sendAction,
+				caretSender=self._sendCaret,
 				session=session,
 			)
 			objects[nodeId] = obj
@@ -313,10 +374,26 @@ class RemoteAccessSemanticBrailleBridge:
 		except Exception:
 			log.error("Failed to send linux-rdaccess semantic action")
 
+	def _sendCaret(self, objectId: str, offset: int) -> None:
+		if self._terminated or not self._negotiated:
+			return
+		if type(offset) is not int or not 0 <= offset <= 8192:
+			return
+		try:
+			self._transport.send(
+				type="lrd_a11y_caret",
+				version=NATIVE_BRAILLE_VERSION,
+				object_id=objectId,
+				offset=offset,
+			)
+		except Exception:
+			log.error("Failed to send linux-rdaccess semantic caret")
+
 	def terminate(self) -> None:
 		if self._terminated:
 			return
 		self._restoreRawBraille()
+		self._removeSemanticBrailleInput(restoreStock=False)
 		self._terminated = True
 		self._negotiated = False
 		self._objects.clear()
