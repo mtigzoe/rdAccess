@@ -23,10 +23,37 @@ else:
 NATIVE_BRAILLE_VERSION = 1
 _HELLO_CALLBACK = "msg_lrd_a11y_hello"
 _FOCUS_CALLBACK = "msg_lrd_a11y_focus"
+_FALLBACK_CALLBACK = "msg_lrd_a11y_fallback"
+_BUILTIN_TYPES = {
+	"lrd_a11y_hello",
+	"lrd_a11y_focus",
+	"lrd_a11y_fallback",
+}
+
+
+def _builtinRemoteState() -> tuple[object | None, object | None]:
+	"""Return NVDA's built-in Remote Access client and active leader transport."""
+	try:
+		import _remoteClient
+	except Exception:
+		return None, None
+	client = getattr(_remoteClient, "_remoteClient", None)
+	if client is None:
+		return None, None
+	return client, getattr(client, "leaderTransport", None)
 
 
 class RemoteAccessSemanticBrailleBridge:
 	"""Render Linux semantic focus with NVDA's own braille engine.
+
+	For current built-in NVDA Remote Access, unknown protocol message types are
+	rejected by Transport.parse before normal handlers can register them. This
+	bridge therefore wraps only the active leader transport instance, consumes
+	the linux-rdaccess extension messages, and delegates every standard message
+	to the original parser unchanged.
+
+	Legacy Orca Remote/TeleNVDA-style transports which expose callback_manager
+	continue to use their native callback registration mechanism.
 
 	This bridge deliberately avoids NVDA gainFocus events: Orca Remote already
 	provides speech, so semantic focus is presented to braille only. The local
@@ -34,24 +61,116 @@ class RemoteAccessSemanticBrailleBridge:
 	"""
 
 	def __init__(self, transport):
-		self._transport = transport
-		self._manager = getattr(transport, "callback_manager", None)
-		if self._manager is None or not callable(getattr(self._manager, "register_callback", None)):
-			raise TypeError("Remote Access transport has no callback manager")
 		if not callable(getattr(transport, "send", None)):
 			raise TypeError("Remote Access transport cannot send messages")
+		self._transport = transport
+		self._manager = getattr(transport, "callback_manager", None)
 		self._session = 0
 		self._negotiated = False
 		self._terminated = False
 		self._objects: dict[str, RemoteA11yObject] = {}
 		self._focusId: str | None = None
 		self._lastNode = None
-		self._manager.register_callback(_HELLO_CALLBACK, self._onHello)
-		self._manager.register_callback(_FOCUS_CALLBACK, self._onFocus)
+		self._originalParse = None
+		self._installedParse = None
+		self._client = None
+		self._originalSetReceivingBraille = None
+
+		if self._manager is not None and callable(getattr(self._manager, "register_callback", None)):
+			self._manager.register_callback(_HELLO_CALLBACK, self._onHello)
+			self._manager.register_callback(_FOCUS_CALLBACK, self._onFocus)
+			self._manager.register_callback(_FALLBACK_CALLBACK, self._onFallback)
+		else:
+			self._installBuiltInTransport()
+
+		self._installBuiltInBrailleOwnership()
 
 	@property
 	def transport(self):
 		return self._transport
+
+	def _installBuiltInTransport(self) -> None:
+		serializer = getattr(self._transport, "serializer", None)
+		originalParse = getattr(self._transport, "parse", None)
+		if serializer is None or not callable(getattr(serializer, "deserialize", None)) or not callable(originalParse):
+			raise TypeError("Remote Access transport has no supported inbound extension surface")
+		self._originalParse = originalParse
+
+		def parse(line):
+			try:
+				message = serializer.deserialize(line)
+			except Exception:
+				return originalParse(line)
+			messageType = message.get("type") if isinstance(message, dict) else None
+			if messageType not in _BUILTIN_TYPES:
+				return originalParse(line)
+			payload = dict(message)
+			payload.pop("type", None)
+			# Relay servers can add an origin field. It is transport metadata,
+			# not part of the semantic payload.
+			payload.pop("origin", None)
+			if messageType == "lrd_a11y_hello":
+				self._onHello(**payload)
+			elif messageType == "lrd_a11y_focus":
+				self._onFocus(**payload)
+			else:
+				self._onFallback(**payload)
+
+		self._installedParse = parse
+		self._transport.parse = parse
+
+	def _installBuiltInBrailleOwnership(self) -> None:
+		client, leaderTransport = _builtinRemoteState()
+		if client is None or leaderTransport is not self._transport:
+			return
+		original = getattr(client, "setReceivingBraille", None)
+		if not callable(original):
+			return
+		self._client = client
+		self._originalSetReceivingBraille = original
+
+		def setReceivingBraille(state):
+			if state and self._negotiated and getattr(client, "leaderTransport", None) is self._transport:
+				session = getattr(client, "leaderSession", None)
+				localMachine = getattr(client, "localMachine", None)
+				if (
+					session is not None
+					and getattr(session, "callbacksAdded", False)
+					and localMachine is not None
+				):
+					# Keep display gestures routed to the Linux follower, but
+					# leave NVDA's own braille formatter enabled.
+					session.registerBrailleInput()
+					localMachine.receivingBraille = False
+					return
+			return original(state)
+
+		client.setReceivingBraille = setReceivingBraille
+
+	def _activateNativeBraille(self) -> None:
+		client = self._client
+		if client is None:
+			return
+		if getattr(client, "leaderTransport", None) is not self._transport:
+			return
+		if getattr(client, "sendingKeys", False):
+			try:
+				client.setReceivingBraille(True)
+			except Exception:
+				log.debugWarning("Could not enable NVDA-native remote braille", exc_info=True)
+
+	def _restoreRawBraille(self) -> None:
+		client = self._client
+		original = self._originalSetReceivingBraille
+		if client is None or original is None:
+			return
+		if getattr(client, "leaderTransport", None) is not self._transport:
+			return
+		if getattr(client, "sendingKeys", False):
+			try:
+				original(True)
+			except Exception:
+				log.debugWarning("Could not restore raw Remote Access braille", exc_info=True)
 
 	def _onHello(self, version=None, **kwargs):
 		if self._terminated or version != NATIVE_BRAILLE_VERSION:
@@ -70,6 +189,19 @@ class RemoteAccessSemanticBrailleBridge:
 		except Exception:
 			self._negotiated = False
 			log.error("Failed to acknowledge linux-rdaccess semantic braille")
+			return
+		self._activateNativeBraille()
+
+	def _onFallback(self, version=None, **kwargs):
+		if self._terminated or version != NATIVE_BRAILLE_VERSION:
+			return
+		if not self._negotiated:
+			return
+		self._negotiated = False
+		self._objects.clear()
+		self._focusId = None
+		self._lastNode = None
+		self._restoreRawBraille()
 
 	def _onFocus(self, version=None, focus_id=None, objects=None, **kwargs):
 		if self._terminated or not self._negotiated or version != NATIVE_BRAILLE_VERSION:
@@ -168,14 +300,31 @@ class RemoteAccessSemanticBrailleBridge:
 	def terminate(self) -> None:
 		if self._terminated:
 			return
+		self._restoreRawBraille()
 		self._terminated = True
 		self._negotiated = False
 		self._objects.clear()
+
+		if self._client is not None and self._originalSetReceivingBraille is not None:
+			try:
+				if getattr(self._client, "setReceivingBraille", None) is not self._originalSetReceivingBraille:
+					self._client.setReceivingBraille = self._originalSetReceivingBraille
+			except Exception:
+				pass
+
+		if self._installedParse is not None:
+			try:
+				if getattr(self._transport, "parse", None) is self._installedParse:
+					self._transport.parse = self._originalParse
+			except Exception:
+				pass
+
 		unregister = getattr(self._manager, "unregister_callback", None)
 		if callable(unregister):
 			for name, callback in (
 				(_HELLO_CALLBACK, self._onHello),
 				(_FOCUS_CALLBACK, self._onFocus),
+				(_FALLBACK_CALLBACK, self._onFallback),
 			):
 				try:
 					unregister(name, callback)
@@ -184,7 +333,7 @@ class RemoteAccessSemanticBrailleBridge:
 
 
 def _candidateTransports(plugin) -> typing.Iterator[object]:
-	"""Yield likely NVDA Remote/TeleNVDA transports without importing that add-on."""
+	"""Yield likely legacy NVDA Remote/TeleNVDA transports."""
 	seen: set[int] = set()
 	queue = [plugin]
 	attrs = ("remoteClient", "client", "transport", "localMachine", "remoteMachine")
@@ -211,8 +360,12 @@ def _candidateTransports(plugin) -> typing.Iterator[object]:
 		queue = nextQueue
 
 
-def findRemoteAccessTransport(runningPlugins) -> object | None:
-	"""Find a live Remote Access transport conservatively."""
+def findRemoteAccessTransport(runningPlugins=()) -> object | None:
+	"""Find built-in NVDA Remote Access first, then legacy/TeleNVDA transports."""
+	_client, transport = _builtinRemoteState()
+	if transport is not None and callable(getattr(transport, "send", None)):
+		return transport
+
 	for plugin in runningPlugins:
 		module = plugin.__class__.__module__.lower()
 		if "remoteclient" not in module and "telenvda" not in module:
