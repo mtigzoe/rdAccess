@@ -57,6 +57,7 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 	_synthDetector: SynthDetector | None = None
 	_ioThread: ioThread.IoThread | None = None
 	_capsLockPushPending: bool = False
+	_remoteAccessSemanticBraille: handlers.RemoteAccessSemanticBrailleBridge | None = None
 
 	@classmethod
 	def _updateRegistryForRdPipe(cls, install: bool, rdp: bool, citrix: bool) -> bool:
@@ -158,6 +159,26 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 		settingsPanel.RemoteDesktopSettingsPanel.post_onSave.register(
 			self._handlePostConfigProfileSwitch,
 		)
+		wx.CallAfter(self._refreshRemoteAccessSemanticBraille)
+
+	def _refreshRemoteAccessSemanticBraille(self):
+		"""Attach semantic Linux braille to a live NVDA Remote/TeleNVDA transport."""
+		transport = handlers.findRemoteAccessTransport(
+			getattr(globalPluginHandler, "runningPlugins", ()),
+		)
+		current = self._remoteAccessSemanticBraille
+		if current is not None and current.transport is transport:
+			return
+		if current is not None:
+			current.terminate()
+			self._remoteAccessSemanticBraille = None
+		if transport is None:
+			return
+		try:
+			self._remoteAccessSemanticBraille = handlers.RemoteAccessSemanticBrailleBridge(transport)
+			log.info("Attached NVDA-native linux-rdaccess braille presentation")
+		except Exception:
+			log.debugWarning("Could not attach linux-rdaccess semantic braille", exc_info=True)
 
 	def _reconcilePipes(self):
 		"""Aligns the handler map with the pipes that currently exist.
@@ -249,6 +270,9 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def terminate(self):
 		try:
+			if self._remoteAccessSemanticBraille is not None:
+				self._remoteAccessSemanticBraille.terminate()
+				self._remoteAccessSemanticBraille = None
 			if not isRunningOnSecureDesktop():
 				settingsPanel.RemoteDesktopSettingsPanel.post_onSave.unregister(
 					self._handlePostConfigProfileSwitch,
@@ -412,6 +436,7 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def event_gainFocus(self, obj, nextHandler):
 		if not isRunningOnSecureDesktop():
+			self._refreshRemoteAccessSemanticBraille()
 			configuredOperatingMode = configuration.getOperatingMode()
 			if configuredOperatingMode & configuration.OperatingMode.CLIENT:
 				for handler in self._handlers.values():
