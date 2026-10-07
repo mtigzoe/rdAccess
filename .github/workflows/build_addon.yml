@@ -44,13 +44,7 @@ jobs:
       run: uv sync
 
     - name: Code checks
-      continue-on-error: true
       run: $env:SKIP = "no-commit-to-branch"; uv run prek run --all-files
-
-    - name: Show formatter diff
-      run: |
-        git diff -- addon/globalPlugins/rdAccess/nvdaRemoteSemanticBraille.py addon/globalPlugins/rdAccess/__init__.py tests/test_nvdaRemoteSemanticBraille.py
-        if (git diff --quiet --exit-code) { exit 0 } else { exit 1 }
 
     - name: building addon
       run: uv run scons && uv run scons pot
