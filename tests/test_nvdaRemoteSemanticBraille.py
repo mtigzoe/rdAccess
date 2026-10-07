@@ -10,7 +10,6 @@ import unittest
 
 from tests import test_remoteA11yHandler
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "addon" / "globalPlugins" / "rdAccess" / "nvdaRemoteSemanticBraille.py"
 
@@ -146,7 +145,6 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 			},
 		)
 
-
 	def test_new_hello_resets_previous_native_session_until_fresh_focus(self):
 		self._negotiate()
 		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
@@ -174,7 +172,6 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		obj = self.braille.handler.focus[0]
 		self.assertEqual(obj.name, "Apply changes")
 		self.assertEqual(obj._node.role, "push button")
-
 
 	def test_same_semantic_focus_caret_change_uses_caret_path_not_new_focus(self):
 		self._negotiate()
@@ -220,21 +217,22 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 			"caret_offset": 2,
 		})
 		self.transport.parse(json.dumps(payload).encode("utf-8"))
-		self.transport.parse(json.dumps({
-			"type": self.module.CUSTOM_TEXT,
-			"version": 1,
-			"object_id": "button",
-			"event": "caret",
-			"text_supported": True,
-			"text": "hello!",
-			"text_truncated": False,
-			"caret_offset": 3,
-			"selection_start": None,
-			"selection_end": None,
-		}).encode("utf-8"))
+		self.transport.parse(
+			json.dumps({
+				"type": self.module.CUSTOM_TEXT,
+				"version": 1,
+				"object_id": "button",
+				"event": "caret",
+				"text_supported": True,
+				"text": "hello!",
+				"text_truncated": False,
+				"caret_offset": 3,
+				"selection_start": None,
+				"selection_end": None,
+			}).encode("utf-8"),
+		)
 		self.assertEqual(len(self.braille.handler.caret), 1)
 		self.assertEqual(self.braille.handler.caret[0]._node.text, "hello!")
-
 
 	def test_fallback_message_restores_raw_remote_braille(self):
 		self._negotiate()
