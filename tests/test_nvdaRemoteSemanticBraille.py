@@ -146,6 +146,21 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 			},
 		)
 
+
+	def test_new_hello_resets_previous_native_session_until_fresh_focus(self):
+		self._negotiate()
+		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
+		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
+		self.assertEqual(len(self.braille.handler.focus), 1)
+
+		ack = self._negotiate()
+		self.assertEqual(ack["type"], "lrd_a11y_capability")
+		self.assertTrue(self.remoteClient._remoteClient.localMachine.receivingBraille)
+
+		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
+		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
+		self.assertEqual(len(self.braille.handler.focus), 2)
+
 	def test_focus_before_negotiation_does_not_take_over_braille(self):
 		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
 		self.assertTrue(self.remoteClient._remoteClient.localMachine.receivingBraille)
