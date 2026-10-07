@@ -25,7 +25,7 @@ from logHandler import log
 from utils.security import isRunningOnSecureDesktop, post_sessionLockStateChanged
 from winAPI.secureDesktop import post_secureDesktopStateChange
 
-from . import directoryChanges, handlers, settingsPanel
+from . import directoryChanges, handlers, nvdaRemoteSemanticBraille, settingsPanel
 from .synthDetect import SynthDetector
 
 addon: addonHandler.Addon = addonHandler.getCodeAddon()
@@ -54,6 +54,7 @@ CAPS_LOCK_PUSH_DELAY = 50
 
 
 class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
+	_semanticBraille: nvdaRemoteSemanticBraille.NvdaRemoteSemanticBraille | None = None
 	_synthDetector: SynthDetector | None = None
 	_ioThread: ioThread.IoThread | None = None
 	_capsLockPushPending: bool = False
@@ -146,6 +147,8 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		log.info(f"Initializing {addon.name} version {addon.version}")
 		configuration.initializeConfig()
+		self._semanticBraille = nvdaRemoteSemanticBraille.NvdaRemoteSemanticBraille()
+		self._semanticBraille.install()
 		configuredOperatingMode = configuration.getOperatingMode()
 		if configuredOperatingMode & configuration.OperatingMode.CLIENT:
 			self.initializeOperatingModeClient()
@@ -265,6 +268,9 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 			if configuredOperatingMode & configuration.OperatingMode.CLIENT:
 				self.terminateOperatingModeClient()
 		finally:
+			if self._semanticBraille is not None:
+				self._semanticBraille.terminate()
+				self._semanticBraille = None
 			super().terminate()
 
 	def _handlePostConfigProfileSwitch(self):
