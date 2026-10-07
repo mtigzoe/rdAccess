@@ -47,6 +47,8 @@ class NvdaRemoteSemanticBraille:
 		self._objects: dict[str, RemoteA11yObject] = {}
 		self._session = 0
 		self._nativeBrailleActive = False
+		self._focusId: str | None = None
+		self._lastNode = None
 		self._installed = False
 		self._originalParse: typing.Callable[[typing.Any, bytes], None] | None = None
 		self._patchedParse: typing.Callable[[typing.Any, bytes], None] | None = None
@@ -106,6 +108,8 @@ class NvdaRemoteSemanticBraille:
 			setattr(remoteTransport.TCPTransport, "parse", originalParse)
 		self._setNativeBraille(False)
 		self._objects.clear()
+		self._focusId = None
+		self._lastNode = None
 		self._installed = False
 
 	def _handleHello(self, transport, payload: dict[str, typing.Any]) -> None:
@@ -176,6 +180,8 @@ class NvdaRemoteSemanticBraille:
 		if payload.get("version") != CUSTOM_VERSION:
 			return
 		self._objects.clear()
+		self._focusId = None
+		self._lastNode = None
 		self._setNativeBraille(False)
 
 	def _applyMessage(self, message: a11y.FocusMessage | a11y.TextUpdateMessage) -> None:
@@ -214,12 +220,31 @@ class NvdaRemoteSemanticBraille:
 			log.debugWarning("Invalid linux-rdaccess semantic braille ancestry", exc_info=True)
 			return
 
+		previousFocusId = self._focusId
+		previousNode = self._lastNode
 		self._objects = objects
+		self._focusId = message.focusId
+		self._lastNode = focus._node
 		self._setNativeBraille(True)
 		if braille.handler is None:
 			return
 		try:
-			braille.handler.handleGainFocus(focus)
+			if previousFocusId != message.focusId:
+				braille.handler.handleGainFocus(focus)
+				return
+			caretChanged = (
+				previousNode is not None
+				and (
+					previousNode.text != focus._node.text
+					or previousNode.caretOffset != focus._node.caretOffset
+					or previousNode.selectionStart != focus._node.selectionStart
+					or previousNode.selectionEnd != focus._node.selectionEnd
+				)
+			)
+			if caretChanged and callable(getattr(braille.handler, "handleCaretMove", None)):
+				braille.handler.handleCaretMove(focus)
+			else:
+				braille.handler.handleUpdate(focus)
 		except Exception:
 			log.debugWarning("NVDA native braille focus rendering failed", exc_info=True)
 
