@@ -1,8 +1,8 @@
 name: Ruff format diagnostic
 
 on:
-  push:
-    branches: [ feature/nvda-native-braille ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
