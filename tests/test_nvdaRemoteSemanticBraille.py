@@ -36,7 +36,7 @@ def load_module():
 			self.standardLines.append(line)
 
 	transport_module = types.ModuleType("_remoteClient.transport")
-	transport_module.Transport = FakeTransportBase
+	transport_module.TCPTransport = FakeTransportBase
 
 	remote_client = types.ModuleType("_remoteClient")
 	remote_client.__path__ = []
@@ -88,7 +88,7 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		self.remoteClient._remoteClient.localMachine.receivingBraille = True
 		self.bridge = self.module.NvdaRemoteSemanticBraille()
 		self.assertTrue(self.bridge.install())
-		self.transport = self.transportModule.Transport()
+		self.transport = self.transportModule.TCPTransport()
 		self.transport.serializer = FakeSerializer()
 		self.transport.connected = True
 		self.transport.queue = queue.Queue()
