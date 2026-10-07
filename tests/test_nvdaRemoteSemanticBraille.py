@@ -43,6 +43,7 @@ def load_module():
 	remote_client.transport = transport_module
 	remote_client._remoteClient = types.SimpleNamespace(
 		localMachine=types.SimpleNamespace(receivingBraille=True),
+		sendingKeys=True,
 	)
 	sys.modules["_remoteClient"] = remote_client
 	sys.modules["_remoteClient.transport"] = transport_module
@@ -86,6 +87,7 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		self.braille.handler.caret.clear()
 		self.braille.handler.updates.clear()
 		self.remoteClient._remoteClient.localMachine.receivingBraille = True
+		self.remoteClient._remoteClient.sendingKeys = True
 		self.bridge = self.module.NvdaRemoteSemanticBraille()
 		self.assertTrue(self.bridge.install())
 		self.transport = self.transportModule.TCPTransport()
@@ -179,6 +181,28 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		}).encode("utf-8"))
 		self.assertEqual(len(self.braille.handler.caret), 1)
 		self.assertEqual(self.braille.handler.caret[0]._node.text, "hello!")
+
+
+	def test_fallback_message_restores_raw_remote_braille(self):
+		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
+		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
+		self.transport.parse(b'{"type":"lrd_a11y_fallback","version":1}')
+		self.assertTrue(self.remoteClient._remoteClient.localMachine.receivingBraille)
+		self.assertEqual(self.braille.handler.focus[-1].name, "Apply changes")
+
+	def test_semantic_focus_reasserts_nvda_formatter_after_remote_control_reentry(self):
+		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
+		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
+		# Stock Remote Access sets this True when remote control is re-entered.
+		self.remoteClient._remoteClient.localMachine.receivingBraille = True
+		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
+		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
+
+	def test_terminate_while_local_control_does_not_enable_remote_raw_braille(self):
+		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
+		self.remoteClient._remoteClient.sendingKeys = False
+		self.bridge.terminate()
+		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
 
 	def test_terminate_restores_remote_raw_braille_mode(self):
 		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
