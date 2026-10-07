@@ -4,12 +4,15 @@
 
 from ._remoteHandler import RemoteHandler
 from .remoteA11yHandler import RemoteA11yHandler, RemoteA11yObject
+from .remoteAccessSemanticBraille import RemoteAccessSemanticBrailleBridge, findRemoteAccessTransport
 from .remoteBrailleHandler import RemoteBrailleHandler
 from .remoteSpeechHandler import RemoteSpeechHandler
 
 __all__ = [
 	"RemoteA11yHandler",
 	"RemoteA11yObject",
+	"RemoteAccessSemanticBrailleBridge",
+	"findRemoteAccessTransport",
 	"RemoteBrailleHandler",
 	"RemoteHandler",
 	"RemoteSpeechHandler",
