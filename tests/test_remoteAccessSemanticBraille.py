@@ -340,15 +340,20 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		self.remoteModule._remoteClient = self.client
 		self.patch = mock.patch.dict(sys.modules, {"_remoteClient": self.remoteModule})
 		self.patch.start()
+		self.addCleanup(self.patch.stop)
 		self.decider = FakeDecider()
-		self.originalDecider = self.module.inputCore.decide_executeGesture
+		self.hadOriginalDecider = hasattr(self.module.inputCore, "decide_executeGesture")
+		self.originalDecider = getattr(self.module.inputCore, "decide_executeGesture", None)
 		self.module.inputCore.decide_executeGesture = self.decider
+		self.addCleanup(self._restoreDecider)
 		self.bridge = self.module.RemoteAccessSemanticBrailleBridge(self.transport)
+		self.addCleanup(self.bridge.terminate)
 
-	def tearDown(self):
-		self.bridge.terminate()
-		self.module.inputCore.decide_executeGesture = self.originalDecider
-		self.patch.stop()
+	def _restoreDecider(self):
+		if self.hadOriginalDecider:
+			self.module.inputCore.decide_executeGesture = self.originalDecider
+		elif hasattr(self.module.inputCore, "decide_executeGesture"):
+			del self.module.inputCore.decide_executeGesture
 
 	def test_builtin_hello_is_intercepted_and_enables_nvda_braille_formatter(self):
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1,"origin":17}')
