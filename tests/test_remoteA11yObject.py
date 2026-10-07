@@ -126,14 +126,17 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 	def _obj(self, node: A11yNode):
 		objectMap = {}
 		actions = []
+		carets = []
 		obj = handler.RemoteA11yObject(
 			processID=42,
 			node=node,
 			parentObject=None,
 			objectMap=objectMap,
 			actionSender=lambda node_id, index: actions.append((node_id, index)),
+			caretSender=lambda node_id, offset: carets.append((node_id, offset)),
 		)
 		obj._testActions = actions
+		obj._testCarets = carets
 		objectMap[node.nodeId] = obj
 		return obj
 
@@ -221,6 +224,21 @@ class RemoteA11yObjectMappingTests(unittest.TestCase):
 		self.assertEqual(info._getSelectionOffsets(), (1, 4))
 		self.assertTrue(info.allowMoveToUnitOffsetPastEnd("character"))
 		self.assertEqual(obj._get_basicText(), "hello world")
+
+	def test_remote_text_caret_update_uses_semantic_sender(self):
+		obj = self._obj(
+			self._node(
+				role="text",
+				textSupported=True,
+				text="hello",
+				caretOffset=1,
+			),
+		)
+		info = handler.RemoteA11yTextInfo(obj)
+		info._setCaretOffset(4)
+		self.assertEqual(obj._testCarets, [("1", 4)])
+		with self.assertRaises(NotImplementedError):
+			info._setCaretOffset(6)
 
 	def test_remote_text_selection_falls_back_to_caret(self):
 		obj = self._obj(
