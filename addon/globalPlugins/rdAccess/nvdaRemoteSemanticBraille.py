@@ -59,7 +59,7 @@ class NvdaRemoteSemanticBraille:
 			log.debug("NVDA Remote Access transport unavailable; semantic braille disabled")
 			return False
 
-		original = remoteTransport.Transport.parse
+		original = remoteTransport.TCPTransport.parse
 		bridge = self
 
 		def patchedParse(transport, line: bytes):
@@ -78,7 +78,7 @@ class NvdaRemoteSemanticBraille:
 						return
 			return original(transport, line)
 
-		remoteTransport.Transport.parse = patchedParse
+		remoteTransport.TCPTransport.parse = patchedParse
 		self._originalParse = original
 		self._patchedParse = patchedParse
 		self._installed = True
@@ -94,9 +94,9 @@ class NvdaRemoteSemanticBraille:
 		if (
 			remoteTransport is not None
 			and self._patchedParse is not None
-			and remoteTransport.Transport.parse is self._patchedParse
+			and remoteTransport.TCPTransport.parse is self._patchedParse
 		):
-			remoteTransport.Transport.parse = self._originalParse
+			remoteTransport.TCPTransport.parse = self._originalParse
 		self._setNativeBraille(False)
 		self._objects.clear()
 		self._installed = False
