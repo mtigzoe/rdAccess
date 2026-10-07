@@ -373,14 +373,11 @@ class RemoteAccessSemanticBrailleBridge:
 			handler.handleGainFocus(focus)
 			return
 
-		caretChanged = (
-			previousNode is not None
-			and (
-				previousNode.text != focus._node.text
-				or previousNode.caretOffset != focus._node.caretOffset
-				or previousNode.selectionStart != focus._node.selectionStart
-				or previousNode.selectionEnd != focus._node.selectionEnd
-			)
+		caretChanged = previousNode is not None and (
+			previousNode.text != focus._node.text
+			or previousNode.caretOffset != focus._node.caretOffset
+			or previousNode.selectionStart != focus._node.selectionStart
+			or previousNode.selectionEnd != focus._node.selectionEnd
 		)
 		if caretChanged and callable(getattr(handler, "handleCaretMove", None)):
 			handler.handleCaretMove(focus)
