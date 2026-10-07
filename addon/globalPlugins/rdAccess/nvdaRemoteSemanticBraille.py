@@ -47,8 +47,8 @@ class NvdaRemoteSemanticBraille:
 		self._session = 0
 		self._nativeBrailleActive = False
 		self._installed = False
-		self._originalParse = None
-		self._patchedParse = None
+		self._originalParse: typing.Callable[[typing.Any, bytes], None] | None = None
+		self._patchedParse: typing.Callable[[typing.Any, bytes], None] | None = None
 
 	def install(self) -> bool:
 		if self._installed:
@@ -62,7 +62,8 @@ class NvdaRemoteSemanticBraille:
 		original = remoteTransport.TCPTransport.parse
 		bridge = self
 
-		def patchedParse(transport, line: bytes):
+		def patchedParse(self, line: bytes) -> None:
+			transport = self
 			if isinstance(line, (bytes, bytearray)) and len(line) <= _MAX_CUSTOM_LINE_BYTES:
 				try:
 					obj = transport.serializer.deserialize(line)
@@ -91,12 +92,14 @@ class NvdaRemoteSemanticBraille:
 			from _remoteClient import transport as remoteTransport
 		except Exception:
 			remoteTransport = None
+		originalParse = self._originalParse
 		if (
 			remoteTransport is not None
 			and self._patchedParse is not None
+			and originalParse is not None
 			and remoteTransport.TCPTransport.parse is self._patchedParse
 		):
-			remoteTransport.TCPTransport.parse = self._originalParse
+			remoteTransport.TCPTransport.parse = originalParse
 		self._setNativeBraille(False)
 		self._objects.clear()
 		self._installed = False
