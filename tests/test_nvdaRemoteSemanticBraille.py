@@ -151,6 +151,31 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		self.assertEqual(obj.name, "Apply changes")
 		self.assertEqual(obj._node.role, "push button")
 
+
+	def test_same_semantic_focus_caret_change_uses_caret_path_not_new_focus(self):
+		payload = self._focus()
+		payload["objects"][0].update({
+			"role": "text",
+			"text_supported": True,
+			"text": "hello",
+			"caret_offset": 1,
+		})
+		self.transport.parse(json.dumps(payload).encode("utf-8"))
+		payload["objects"][0]["caret_offset"] = 2
+		self.transport.parse(json.dumps(payload).encode("utf-8"))
+		self.assertEqual(len(self.braille.handler.focus), 1)
+		self.assertEqual(len(self.braille.handler.caret), 1)
+		self.assertEqual(self.braille.handler.updates, [])
+
+	def test_same_semantic_focus_state_change_uses_update_path(self):
+		payload = self._focus()
+		self.transport.parse(json.dumps(payload).encode("utf-8"))
+		payload["objects"][0]["states"] = ["focusable", "focused", "selected"]
+		self.transport.parse(json.dumps(payload).encode("utf-8"))
+		self.assertEqual(len(self.braille.handler.focus), 1)
+		self.assertEqual(len(self.braille.handler.updates), 1)
+		self.assertEqual(self.braille.handler.caret, [])
+
 	def test_invalid_semantic_payload_does_not_take_over_braille(self):
 		payload = self._focus()
 		payload["objects"][0]["states"] = "not-a-list"
