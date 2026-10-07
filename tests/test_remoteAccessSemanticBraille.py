@@ -399,6 +399,9 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		self.assertNotIn(self.bridge._handleSemanticBrailleGesture, self.decider.handlers)
 
 	def test_semantic_focus_does_not_replace_local_windows_braille(self):
+		fakeHandler = FakeBrailleHandler()
+		self.module.braille.handler = fakeHandler
+		self.addCleanup(lambda: delattr(self.module.braille, "handler"))
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
 		queueHandler.pumpAll()
 		self.client.sendingKeys = False
@@ -430,7 +433,7 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		}
 		self.transport.parse(json.dumps(message).encode("utf-8"))
 		queueHandler.pumpAll()
-		self.assertEqual(braille.handler.focused, [])
+		self.assertEqual(fakeHandler.focused, [])
 
 	def test_remote_control_reentry_keeps_nvda_formatter_but_forwards_braille_input(self):
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
