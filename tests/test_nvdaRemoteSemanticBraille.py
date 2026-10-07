@@ -99,6 +99,10 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 	def tearDown(self):
 		self.bridge.terminate()
 
+	def _negotiate(self):
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		return json.loads(self.transport.queue.get_nowait().decode("utf-8"))
+
 	def _focus(self):
 		return {
 			"type": self.module.CUSTOM_FOCUS,
@@ -132,8 +136,7 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		self.assertEqual(self.transport.standardLines, [line])
 
 	def test_linux_hello_acknowledges_nvda_native_braille(self):
-		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
-		message = json.loads(self.transport.queue.get_nowait().decode("utf-8"))
+		message = self._negotiate()
 		self.assertEqual(
 			message,
 			{
@@ -143,7 +146,13 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 			},
 		)
 
+	def test_focus_before_negotiation_does_not_take_over_braille(self):
+		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
+		self.assertTrue(self.remoteClient._remoteClient.localMachine.receivingBraille)
+		self.assertEqual(self.braille.handler.focus, [])
+
 	def test_semantic_focus_reenables_nvda_formatter_and_renders_focus(self):
+		self._negotiate()
 		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
 		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
 		self.assertEqual(len(self.braille.handler.focus), 1)
@@ -153,6 +162,7 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 
 
 	def test_same_semantic_focus_caret_change_uses_caret_path_not_new_focus(self):
+		self._negotiate()
 		payload = self._focus()
 		payload["objects"][0].update({
 			"role": "text",
@@ -168,6 +178,7 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		self.assertEqual(self.braille.handler.updates, [])
 
 	def test_same_semantic_focus_state_change_uses_update_path(self):
+		self._negotiate()
 		payload = self._focus()
 		self.transport.parse(json.dumps(payload).encode("utf-8"))
 		payload["objects"][0]["states"] = ["focusable", "focused", "selected"]
@@ -177,6 +188,7 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		self.assertEqual(self.braille.handler.caret, [])
 
 	def test_invalid_semantic_payload_does_not_take_over_braille(self):
+		self._negotiate()
 		payload = self._focus()
 		payload["objects"][0]["states"] = "not-a-list"
 		self.transport.parse(json.dumps(payload).encode("utf-8"))
@@ -184,6 +196,7 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		self.assertEqual(self.braille.handler.focus, [])
 
 	def test_semantic_caret_update_uses_nvda_braille_caret_path(self):
+		self._negotiate()
 		payload = self._focus()
 		payload["objects"][0].update({
 			"role": "text",
@@ -209,6 +222,7 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 
 
 	def test_fallback_message_restores_raw_remote_braille(self):
+		self._negotiate()
 		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
 		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
 		self.transport.parse(b'{"type":"lrd_a11y_fallback","version":1}')
@@ -216,6 +230,7 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		self.assertEqual(self.braille.handler.focus[-1].name, "Apply changes")
 
 	def test_semantic_focus_reasserts_nvda_formatter_after_remote_control_reentry(self):
+		self._negotiate()
 		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
 		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
 		# Stock Remote Access sets this True when remote control is re-entered.
@@ -224,12 +239,14 @@ class NvdaRemoteSemanticBrailleTests(unittest.TestCase):
 		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
 
 	def test_terminate_while_local_control_does_not_enable_remote_raw_braille(self):
+		self._negotiate()
 		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
 		self.remoteClient._remoteClient.sendingKeys = False
 		self.bridge.terminate()
 		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
 
 	def test_terminate_restores_remote_raw_braille_mode(self):
+		self._negotiate()
 		self.transport.parse(json.dumps(self._focus()).encode("utf-8"))
 		self.assertFalse(self.remoteClient._remoteClient.localMachine.receivingBraille)
 		self.bridge.terminate()
