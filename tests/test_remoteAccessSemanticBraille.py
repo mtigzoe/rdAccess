@@ -446,10 +446,12 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		self.addCleanup(lambda: setattr(self.module.braille, "handler", None))
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
 		queueHandler.pumpAll()
-		self.transport.parse(b'{"type":"lrd_a11y_message","version":1,"text":"queued"}')
-		# Parser queues callback; message callback then queues main-thread delivery.
+		# The handler has accepted the message but the event queue has not
+		# delivered it. Returning to local control must suppress presentation.
+		self.bridge._onMessage(version=1, text="queued")
+		self.client.sendingKeys = False
 		queueHandler.pumpAll()
-		self.assertEqual(fakeHandler.messages, ["queued"])
+		self.assertEqual(fakeHandler.messages, [])
 
 	def test_standard_remote_access_message_is_delegated_unchanged(self):
 		line = b'{"type":"speak","sequence":["hello"]}'
