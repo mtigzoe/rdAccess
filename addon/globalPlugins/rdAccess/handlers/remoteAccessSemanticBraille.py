@@ -42,7 +42,10 @@ def _sanitizeMessage(text) -> str | None:
 	"""Bound and normalize temporary messages without logging their contents."""
 	if not isinstance(text, str):
 		return None
-	text = "".join(" " if unicodedata.category(ch)[0] == "C" or unicodedata.category(ch)[0] == "Z" else ch for ch in text[:_MAX_MESSAGE_LENGTH])
+	text = "".join(
+		" " if unicodedata.category(ch)[0] in ("C", "Z") else ch
+		for ch in text[:_MAX_MESSAGE_LENGTH]
+	)
 	text = " ".join(text.split())
 	return text or None
 
@@ -313,7 +316,9 @@ class RemoteAccessSemanticBrailleBridge:
 		cleanText = _sanitizeMessage(text)
 		if cleanText is None:
 			return
-		queueHandler.queueFunction(queueHandler.eventQueue, self._presentMessageOnMainThread, self._session, cleanText)
+		queueHandler.queueFunction(
+			queueHandler.eventQueue, self._presentMessageOnMainThread, self._session, cleanText
+		)
 
 	def _presentMessageOnMainThread(self, session: int, text: str) -> None:
 		if self._terminated or not self._negotiated or session != self._session:
