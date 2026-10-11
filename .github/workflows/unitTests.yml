@@ -30,12 +30,6 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Show receiver formatting diff for review
-        shell: pwsh
-        run: |
-          uv run ruff format --diff addon/globalPlugins/rdAccess/handlers/remoteAccessSemanticBraille.py tests/test_remoteAccessSemanticBraille.py
-          exit 0
-
       - name: Test NVDA semantic braille receiver
         run: uv run python -m unittest tests.test_remoteAccessSemanticBraille -v
 
