@@ -317,7 +317,10 @@ class RemoteAccessSemanticBrailleBridge:
 		if cleanText is None:
 			return
 		queueHandler.queueFunction(
-			queueHandler.eventQueue, self._presentMessageOnMainThread, self._session, cleanText
+			queueHandler.eventQueue,
+			self._presentMessageOnMainThread,
+			self._session,
+			cleanText,
 		)
 
 	def _presentMessageOnMainThread(self, session: int, text: str) -> None:
