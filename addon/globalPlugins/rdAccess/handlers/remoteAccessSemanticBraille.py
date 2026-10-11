@@ -43,8 +43,7 @@ def _sanitizeMessage(text) -> str | None:
 	if not isinstance(text, str):
 		return None
 	text = "".join(
-		" " if unicodedata.category(ch)[0] in ("C", "Z") else ch
-		for ch in text[:_MAX_MESSAGE_LENGTH]
+		" " if unicodedata.category(ch)[0] in ("C", "Z") else ch for ch in text[:_MAX_MESSAGE_LENGTH]
 	)
 	text = " ".join(text.split())
 	return text or None
