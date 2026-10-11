@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import contextlib
 import typing
+import unicodedata
 
 import addonHandler
 import braille
@@ -23,14 +24,29 @@ else:
 
 
 NATIVE_BRAILLE_VERSION = 1
+MESSAGE_VERSION = 1
+_MAX_MESSAGE_LENGTH = 256
 _HELLO_CALLBACK = "msg_lrd_a11y_hello"
 _FOCUS_CALLBACK = "msg_lrd_a11y_focus"
+_MESSAGE_CALLBACK = "msg_lrd_a11y_message"
 _FALLBACK_CALLBACK = "msg_lrd_a11y_fallback"
 _BUILTIN_TYPES = {
 	"lrd_a11y_hello",
 	"lrd_a11y_focus",
+	"lrd_a11y_message",
 	"lrd_a11y_fallback",
 }
+
+
+def _sanitizeMessage(text) -> str | None:
+	"""Bound and normalize temporary messages without logging their contents."""
+	if not isinstance(text, str):
+		return None
+	text = "".join(
+		" " if unicodedata.category(ch)[0] in ("C", "Z") else ch for ch in text[:_MAX_MESSAGE_LENGTH]
+	)
+	text = " ".join(text.split())
+	return text or None
 
 
 def _builtinRemoteState() -> tuple[typing.Any | None, typing.Any | None]:
@@ -82,6 +98,7 @@ class RemoteAccessSemanticBrailleBridge:
 		if self._manager is not None and callable(getattr(self._manager, "register_callback", None)):
 			self._manager.register_callback(_HELLO_CALLBACK, self._onHello)
 			self._manager.register_callback(_FOCUS_CALLBACK, self._onFocus)
+			self._manager.register_callback(_MESSAGE_CALLBACK, self._onMessage)
 			self._manager.register_callback(_FALLBACK_CALLBACK, self._onFallback)
 		else:
 			self._installBuiltInTransport()
@@ -120,6 +137,8 @@ class RemoteAccessSemanticBrailleBridge:
 				handler = self._onHello
 			elif messageType == "lrd_a11y_focus":
 				handler = self._onFocus
+			elif messageType == "lrd_a11y_message":
+				handler = self._onMessage
 			else:
 				handler = self._onFallback
 			queueHandler.queueFunction(queueHandler.eventQueue, handler, **payload)
@@ -216,6 +235,7 @@ class RemoteAccessSemanticBrailleBridge:
 								type="lrd_a11y_capability",
 								version=NATIVE_BRAILLE_VERSION,
 								presentation="nvda",
+								message_version=MESSAGE_VERSION,
 							)
 					else:
 						self._removeSemanticBrailleInput(restoreStock=False)
@@ -270,6 +290,7 @@ class RemoteAccessSemanticBrailleBridge:
 				type="lrd_a11y_capability",
 				version=NATIVE_BRAILLE_VERSION,
 				presentation="nvda",
+				message_version=MESSAGE_VERSION,
 			)
 		except Exception:
 			self._negotiated = False
@@ -287,6 +308,28 @@ class RemoteAccessSemanticBrailleBridge:
 		self._focusId = None
 		self._lastNode = None
 		self._restoreRawBraille()
+
+	def _onMessage(self, version=None, text=None, **_kwargs):
+		if self._terminated or not self._negotiated or type(version) is not int or version != MESSAGE_VERSION:
+			return
+		cleanText = _sanitizeMessage(text)
+		if cleanText is None:
+			return
+		queueHandler.queueFunction(
+			queueHandler.eventQueue,
+			self._presentMessageOnMainThread,
+			self._session,
+			cleanText,
+		)
+
+	def _presentMessageOnMainThread(self, session: int, text: str) -> None:
+		if self._terminated or not self._negotiated or session != self._session:
+			return
+		if self._client is not None and not getattr(self._client, "sendingKeys", False):
+			return
+		handler = braille.handler
+		if handler is not None and callable(getattr(handler, "message", None)):
+			handler.message(text)
 
 	def _onFocus(self, version=None, focus_id=None, objects=None, **_kwargs):
 		if self._terminated or not self._negotiated or version != NATIVE_BRAILLE_VERSION:
@@ -443,6 +486,7 @@ class RemoteAccessSemanticBrailleBridge:
 			for name, callback in (
 				(_HELLO_CALLBACK, self._onHello),
 				(_FOCUS_CALLBACK, self._onFocus),
+				(_MESSAGE_CALLBACK, self._onMessage),
 				(_FALLBACK_CALLBACK, self._onFallback),
 			):
 				with contextlib.suppress(Exception):
