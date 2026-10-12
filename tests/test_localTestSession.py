@@ -40,10 +40,9 @@ class LocalStatusSessionTests(unittest.TestCase):
 
 	def test_context_exit_on_error_revokes_session(self):
 		session = localTestSession.LocalStatusSession()
-		with self.assertRaisesRegex(RuntimeError, "failure"):
-			with session:
-				session.begin()
-				raise RuntimeError("failure")
+		with self.assertRaisesRegex(RuntimeError, "failure"), session:
+			session.begin()
+			raise RuntimeError("failure")
 		self.assertFalse(session.active())
 
 	def test_starts_inactive_and_cannot_disclose_credentials(self):
