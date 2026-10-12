@@ -195,6 +195,7 @@ class LocalIpcTests(unittest.TestCase):
 				b"k" * 32,
 				revoke,
 				cancelled=cancelled,
+				dispatch=lambda task: task(),
 			)
 		connection.send_bytes.assert_not_called()
 
