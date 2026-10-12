@@ -170,6 +170,8 @@ class LocalStatusSession:
 		"""
 		from .localTestIpc import serveOneStatus
 
+		if dispatch is None:
+			raise ValueError("NVDA main-thread dispatcher required")
 		with self._lock:
 			if not self._activeLocked() or self._descriptor is not descriptor:
 				raise PermissionError("Local status session inactive")
