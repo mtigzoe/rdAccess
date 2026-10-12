@@ -118,6 +118,30 @@ class LocalIpcTests(unittest.TestCase):
 			)
 		listener.assert_not_called()
 
+	def test_server_pre_cancelled_session_does_not_schedule_callback(self):
+		cancelled = threading.Event()
+		cancelled.set()
+		connection = mock.MagicMock()
+		connection.__enter__.return_value = connection
+		connection.poll.return_value = True
+		connection.recv_bytes.return_value = b'{"version":1,"action":"status"}'
+		listener = mock.MagicMock()
+		listener.__enter__.return_value = listener
+		listener.accept.return_value = connection
+		callback = mock.Mock(return_value=self.valid_status())
+		with (
+			mock.patch.object(localTestIpc, "Listener", return_value=listener),
+			self.assertRaises(CancelledError),
+		):
+			localTestIpc.serveOneStatus(
+				localTestIpc.pipeAddress("a" * 32),
+				b"k" * 32,
+				callback,
+				cancelled=cancelled,
+			)
+		callback.assert_not_called()
+		connection.send_bytes.assert_not_called()
+
 	def test_server_rejects_revocation_before_sending_status(self):
 		cancelled = threading.Event()
 		connection = mock.MagicMock()
