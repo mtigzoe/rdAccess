@@ -159,6 +159,18 @@ class LocalStatusSessionTests(unittest.TestCase):
 		with mock.patch(f"{PKG}.localTestRequest.time.monotonic", return_value=105):
 			self.assertFalse(session.isCurrent(issued))
 
+
+	def test_invalid_rotation_preserves_existing_session(self):
+		session = localTestSession.LocalStatusSession()
+		first = session.begin()
+		cancelled = session.cancellationEvent()
+		for lifetime in (0, 301, True, 1.0, -1):
+			with self.subTest(lifetime=lifetime), self.assertRaises(ValueError):
+				session.begin(lifetimeSeconds=lifetime)
+			self.assertTrue(session.isCurrent(first))
+			self.assertFalse(cancelled.is_set())
+		self.assertIs(session.descriptor(), first)
+
 	def test_invalid_lifetime_creates_no_session(self):
 		session = localTestSession.LocalStatusSession()
 		with self.assertRaises(ValueError):
