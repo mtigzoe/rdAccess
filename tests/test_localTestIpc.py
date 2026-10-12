@@ -1,12 +1,12 @@
 """Tests for inactive, bounded Windows local status IPC primitives."""
 
 import importlib.util
-from concurrent.futures import CancelledError
 import json
 import sys
 import threading
 import types
 import unittest
+from concurrent.futures import CancelledError
 from pathlib import Path
 from unittest import mock
 
@@ -150,7 +150,6 @@ class LocalIpcTests(unittest.TestCase):
 			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback)
 		callback.assert_not_called()
 		connection.recv_bytes.assert_not_called()
-
 
 	def test_callback_wait_rejects_pre_cancelled_session(self):
 		cancelled = threading.Event()
