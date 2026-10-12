@@ -49,6 +49,10 @@ class LocalConsent:
 		self._expiresAt = time.monotonic() + lifetimeSeconds
 		return self._secret
 
+	def active(self) -> bool:
+		"""True only during a currently valid, explicitly enabled consent window."""
+		return self._secret is not None and time.monotonic() < self._expiresAt
+
 	def revoke(self) -> None:
 		self._secret = None
 		self._expiresAt = 0.0
