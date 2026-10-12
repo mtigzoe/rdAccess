@@ -25,7 +25,6 @@ class LocalIpcTests(unittest.TestCase):
 			"physical_braille": "unverified",
 		}
 
-
 	def test_invalid_message_bounds_rejected(self):
 		for limit in (0, -1, True, 1.0):
 			with self.subTest(limit=limit), self.assertRaises(ValueError):
