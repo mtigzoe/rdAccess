@@ -208,6 +208,7 @@ class LocalStatusSessionTests(unittest.TestCase):
 	def test_read_status_rechecks_revocation_after_callback(self):
 		session = localTestSession.LocalStatusSession()
 		current = session.begin()
+
 		def callback():
 			session.stop()
 			return {
