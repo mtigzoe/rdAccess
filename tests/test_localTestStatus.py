@@ -63,6 +63,8 @@ class StatusSnapshotTests(unittest.TestCase):
 		del bridge.transport.connected
 		status = localTestStatus.snapshot(bridge)
 		self.assertEqual(status["transport_connected"], "unverified")
+		self.assertEqual(status["remote_control_active"], "unverified")
+		self.assertFalse(status["semantic_braille_negotiated"])
 
 	def test_does_not_expose_credentials_or_focus_text(self):
 		bridge = self.bridge()
