@@ -196,6 +196,32 @@ class LocalStatusSessionTests(unittest.TestCase):
 			self.assertFalse(cancelled.is_set())
 		self.assertIs(session.descriptor(), first)
 
+	def test_read_status_rejects_stale_descriptor_without_running_callback(self):
+		session = localTestSession.LocalStatusSession()
+		stale = session.begin()
+		session.begin()
+		callback = mock.Mock()
+		with self.assertRaises(PermissionError):
+			session.readStatus(stale, callback)
+		callback.assert_not_called()
+
+	def test_read_status_rechecks_revocation_after_callback(self):
+		session = localTestSession.LocalStatusSession()
+		current = session.begin()
+		def callback():
+			session.stop()
+			return {
+				"schema_version": 1,
+				"bridge_attached": False,
+				"transport_connected": "unverified",
+				"remote_control_active": "unverified",
+				"semantic_braille_negotiated": False,
+				"temporary_message_supported": False,
+				"physical_braille": "unverified",
+			}
+		with self.assertRaises(PermissionError):
+			session.readStatus(current, callback)
+
 	def test_invalid_lifetime_creates_no_session(self):
 		session = localTestSession.LocalStatusSession()
 		with self.assertRaises(ValueError):
