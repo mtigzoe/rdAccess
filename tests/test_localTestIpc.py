@@ -238,6 +238,18 @@ class LocalIpcTests(unittest.TestCase):
 		pending[0]()
 		callback.assert_not_called()
 
+	def test_one_shot_server_requires_dispatch_before_opening_listener(self):
+		with (
+			mock.patch.object(localTestIpc, "Listener") as listener,
+			self.assertRaises(ValueError),
+		):
+			localTestIpc.serveOneStatus(
+				localTestIpc.pipeAddress("a" * 32),
+				b"k" * 32,
+				self.valid_status,
+			)
+		listener.assert_not_called()
+
 	def test_one_shot_server_can_dispatch_status_via_ui_thread(self):
 		connection = mock.MagicMock()
 		connection.__enter__.return_value = connection
@@ -277,7 +289,7 @@ class LocalIpcTests(unittest.TestCase):
 			mock.patch.object(localTestIpc, "Listener", return_value=listener),
 			self.assertRaises(ValueError),
 		):
-			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback)
+			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback, dispatch=lambda task: task())
 		callback.assert_not_called()
 		connection.send_bytes.assert_not_called()
 
@@ -293,7 +305,7 @@ class LocalIpcTests(unittest.TestCase):
 			mock.patch.object(localTestIpc, "Listener", return_value=listener),
 			self.assertRaises(TimeoutError),
 		):
-			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback)
+			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback, dispatch=lambda task: task())
 		callback.assert_not_called()
 		connection.recv_bytes.assert_not_called()
 
