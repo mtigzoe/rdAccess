@@ -155,8 +155,6 @@ def waitForStatus(
 		raise errors[0]
 	return result[0]
 
-
-
 def waitForMainThreadStatus(
 	statusCallback: Callable[[], dict[str, Any]],
 	dispatch: Callable[[Callable[[], None]], None],
