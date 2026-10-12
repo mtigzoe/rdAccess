@@ -84,11 +84,15 @@ class RemoteAccessSemanticBrailleBridge:
 		self._transport = transport
 		self._manager = getattr(transport, "callback_manager", None)
 		self._session = 0
+		self._transportGeneration = 0
+		self._controlGeneration = 0
 		self._negotiated = False
 		self._terminated = False
 		self._objects: dict[str, RemoteA11yObject] = {}
 		self._focusId: str | None = None
 		self._lastNode = None
+		self._lastFocus: a11y.FocusMessage | None = None
+		self._transportEvents = []
 		self._originalParse = None
 		self._installedParse = None
 		self._client = None
@@ -104,6 +108,11 @@ class RemoteAccessSemanticBrailleBridge:
 			self._installBuiltInTransport()
 
 		self._installBuiltInBrailleOwnership()
+		for name in ("transportDisconnected", "transportClosing"):
+			event = getattr(transport, name, None)
+			if event is not None and callable(getattr(event, "register", None)):
+				event.register(self._onTransportDisconnected)
+				self._transportEvents.append(event)
 
 	@property
 	def transport(self):
@@ -121,6 +130,8 @@ class RemoteAccessSemanticBrailleBridge:
 		self._originalParse = originalParse
 
 		def parse(line):
+			transportGeneration = self._transportGeneration
+			controlGeneration = self._controlGeneration
 			try:
 				message = serializer.deserialize(line)
 			except Exception:
@@ -141,10 +152,60 @@ class RemoteAccessSemanticBrailleBridge:
 				handler = self._onMessage
 			else:
 				handler = self._onFallback
-			queueHandler.queueFunction(queueHandler.eventQueue, handler, **payload)
+			queueHandler.queueFunction(
+				queueHandler.eventQueue,
+				self._dispatchOnMainThread,
+				transportGeneration,
+				controlGeneration,
+				handler,
+				payload,
+			)
 
 		self._installedParse = parse
 		self._transport.parse = parse
+
+	def _dispatchOnMainThread(self, generation: int, controlGeneration: int, handler, payload: dict) -> None:
+		if self._terminated or generation != self._transportGeneration:
+			return
+		if handler == self._onMessage and controlGeneration != self._controlGeneration:
+			return
+		handler(**payload)
+
+	def _isCurrentTransport(self) -> bool:
+		return getattr(self._transport, "connected", True) and (
+			self._client is None or getattr(self._client, "leaderTransport", None) is self._transport
+		)
+
+	def _isCurrentSession(self, session: int) -> bool:
+		return (
+			not self._terminated
+			and self._negotiated
+			and session == self._session
+			and self._isCurrentTransport()
+		)
+
+	def _clearFocus(self) -> None:
+		self._objects.clear()
+		self._focusId = None
+		self._lastNode = None
+		self._lastFocus = None
+
+	def _onTransportDisconnected(self, **_kwargs) -> None:
+		if self._terminated:
+			return
+		# Invalidate IO-thread messages immediately, including parsed messages
+		# still waiting for dispatch when this transport reconnects.
+		self._transportGeneration += 1
+		self._session += 1
+		self._negotiated = False
+		self._lastFocus = None
+		queueHandler.queueFunction(queueHandler.eventQueue, self._finishDisconnectOnMainThread, self._session)
+
+	def _finishDisconnectOnMainThread(self, session: int) -> None:
+		if self._terminated or session != self._session:
+			return
+		self._clearFocus()
+		self._removeSemanticBrailleInput(restoreStock=False)
 
 	def _leaderSession(self):
 		client = self._client
@@ -225,6 +286,7 @@ class RemoteAccessSemanticBrailleBridge:
 			if self._negotiated and getattr(client, "leaderTransport", None) is self._transport:
 				localMachine = getattr(client, "localMachine", None)
 				if localMachine is not None:
+					self._controlGeneration += 1
 					if state:
 						self._installSemanticBrailleInput()
 						# A capability ACK doubles as a safe refresh request on Linux.
@@ -237,13 +299,31 @@ class RemoteAccessSemanticBrailleBridge:
 								presentation="nvda",
 								message_version=MESSAGE_VERSION,
 							)
+						queueHandler.queueFunction(
+							queueHandler.eventQueue,
+							self._replayFocusOnMainThread,
+							self._session,
+						)
 					else:
+						# Local Windows focus can replace every remote region. The
+						# next remote presentation must rebuild them, even for the
+						# same node, rather than asking NVDA to update a missing region.
+						self._focusId = None
+						self._lastNode = None
 						self._removeSemanticBrailleInput(restoreStock=False)
 					localMachine.receivingBraille = False
 					return
 			return original(state)
 
 		client.setReceivingBraille = setReceivingBraille
+
+	def _replayFocusOnMainThread(self, session: int) -> None:
+		if not self._isCurrentSession(session):
+			return
+		# A newer snapshot might already have rebuilt the remote buffer while
+		# this callback was queued. Never overwrite it with an earlier focus.
+		if self._focusId is None and self._lastFocus is not None:
+			self._presentOnMainThread(session, self._lastFocus)
 
 	def _activateNativeBraille(self) -> None:
 		client = self._client
@@ -278,13 +358,11 @@ class RemoteAccessSemanticBrailleBridge:
 				log.debugWarning("Could not restore raw Remote Access braille", exc_info=True)
 
 	def _onHello(self, version=None, **_kwargs):
-		if self._terminated or version != NATIVE_BRAILLE_VERSION:
+		if self._terminated or version != NATIVE_BRAILLE_VERSION or not self._isCurrentTransport():
 			return
 		self._session += 1
 		self._negotiated = True
-		self._objects.clear()
-		self._focusId = None
-		self._lastNode = None
+		self._clearFocus()
 		try:
 			self._transport.send(
 				type="lrd_a11y_capability",
@@ -304,13 +382,17 @@ class RemoteAccessSemanticBrailleBridge:
 		if not self._negotiated:
 			return
 		self._negotiated = False
-		self._objects.clear()
-		self._focusId = None
-		self._lastNode = None
+		self._clearFocus()
 		self._restoreRawBraille()
 
 	def _onMessage(self, version=None, text=None, **_kwargs):
-		if self._terminated or not self._negotiated or type(version) is not int or version != MESSAGE_VERSION:
+		if (
+			not self._isCurrentSession(self._session)
+			or type(version) is not int
+			or version != MESSAGE_VERSION
+		):
+			return
+		if self._client is not None and not getattr(self._client, "sendingKeys", False):
 			return
 		cleanText = _sanitizeMessage(text)
 		if cleanText is None:
@@ -319,11 +401,12 @@ class RemoteAccessSemanticBrailleBridge:
 			queueHandler.eventQueue,
 			self._presentMessageOnMainThread,
 			self._session,
+			self._controlGeneration,
 			cleanText,
 		)
 
-	def _presentMessageOnMainThread(self, session: int, text: str) -> None:
-		if self._terminated or not self._negotiated or session != self._session:
+	def _presentMessageOnMainThread(self, session: int, generation: int, text: str) -> None:
+		if not self._isCurrentSession(session) or generation != self._controlGeneration:
 			return
 		if self._client is not None and not getattr(self._client, "sendingKeys", False):
 			return
@@ -354,14 +437,7 @@ class RemoteAccessSemanticBrailleBridge:
 		)
 
 	def _presentOnMainThread(self, session: int, message: a11y.FocusMessage) -> None:
-		if self._terminated or session != self._session:
-			return
-		if self._client is not None and not getattr(self._client, "sendingKeys", False):
-			# Stay completely out of the local Windows braille display while
-			# Remote Access is connected but keyboard control is local.
-			return
-		handler = braille.handler
-		if handler is None:
+		if not self._isCurrentSession(session):
 			return
 
 		nodes = {node.nodeId: node for node in message.objects}
@@ -391,6 +467,15 @@ class RemoteAccessSemanticBrailleBridge:
 				buildObject(nodeId)
 		except (KeyError, RecursionError):
 			log.debugWarning("Ignoring invalid semantic braille ancestry", exc_info=True)
+			return
+
+		# Keep only the latest valid snapshot, including changes received while
+		# control is local. Temporary messages are never cached or replayed.
+		self._lastFocus = message
+		if self._client is not None and not getattr(self._client, "sendingKeys", False):
+			return
+		handler = braille.handler
+		if handler is None:
 			return
 
 		previousFocusId = self._focusId
@@ -462,7 +547,11 @@ class RemoteAccessSemanticBrailleBridge:
 		self._removeSemanticBrailleInput(restoreStock=False)
 		self._terminated = True
 		self._negotiated = False
-		self._objects.clear()
+		self._clearFocus()
+		for event in self._transportEvents:
+			with contextlib.suppress(Exception):
+				event.unregister(self._onTransportDisconnected)
+		self._transportEvents.clear()
 
 		if self._client is not None and self._originalSetReceivingBraille is not None:
 			try:
