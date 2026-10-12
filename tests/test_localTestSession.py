@@ -159,6 +159,19 @@ class LocalStatusSessionTests(unittest.TestCase):
 			self.assertFalse(session.isCurrent(issued))
 
 
+	def test_failed_rotation_preserves_prior_session(self):
+		session = localTestSession.LocalStatusSession()
+		first = session.begin()
+		cancelled = session.cancellationEvent()
+		with (
+			mock.patch.object(localTestSession.secrets, "token_bytes", side_effect=OSError("entropy")),
+			self.assertRaises(OSError),
+		):
+			session.begin()
+		self.assertTrue(session.isCurrent(first))
+		self.assertFalse(cancelled.is_set())
+		self.assertIs(session.descriptor(), first)
+
 	def test_invalid_rotation_preserves_existing_session(self):
 		session = localTestSession.LocalStatusSession()
 		first = session.begin()
