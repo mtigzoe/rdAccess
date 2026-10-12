@@ -41,6 +41,7 @@ class LocalStatusSession:
 		self._cancelled = threading.Event()
 		self._cancelled.set()
 		self._lock = threading.RLock()
+		self._expiryTimer: threading.Timer | None = None
 
 	def begin(self, *, lifetimeSeconds: int = 300) -> LocalSessionDescriptor:
 		"""Create a new opt-in session atomically; never open an IPC listener."""
@@ -61,7 +62,17 @@ class LocalStatusSession:
 			self._consent = newConsent
 			self._cancelled = threading.Event()
 			self._descriptor = descriptor
+			# Expiry must cancel pending work even without a status poll.
+			timer = threading.Timer(lifetimeSeconds, self._expire, args=(descriptor,))
+			timer.daemon = True
+			self._expiryTimer = timer
+			timer.start()
 			return descriptor
+
+	def _expire(self, descriptor: LocalSessionDescriptor) -> None:
+		with self._lock:
+			if self._descriptor is descriptor:
+				self._stopLocked()
 
 	def _activeLocked(self) -> bool:
 		if self._descriptor is None or not self._consent.active():
@@ -74,6 +85,9 @@ class LocalStatusSession:
 			return self._activeLocked()
 
 	def _stopLocked(self) -> None:
+		if self._expiryTimer is not None:
+			self._expiryTimer.cancel()
+			self._expiryTimer = None
 		self._cancelled.set()
 		self._consent.revoke()
 		self._descriptor = None
