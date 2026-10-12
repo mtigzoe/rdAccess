@@ -66,7 +66,12 @@ class LocalStatusSession:
 			timer = threading.Timer(lifetimeSeconds, self._expire, args=(descriptor,))
 			timer.daemon = True
 			self._expiryTimer = timer
-			timer.start()
+			try:
+				timer.start()
+			except Exception:
+				# Fail closed: consent must never remain active without expiry.
+				self._stopLocked()
+				raise
 			return descriptor
 
 	def _expire(self, descriptor: LocalSessionDescriptor) -> None:
