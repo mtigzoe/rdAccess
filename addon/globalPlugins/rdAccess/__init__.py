@@ -195,6 +195,7 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 		wx.CallAfter(self._refreshRemoteAccessSemanticBraille)
 
 	def _notifyLocalTestSession(self, outcome):
+		log.info("Local test session outcome: %s", outcome)
 		if self._remoteAccessSemanticBrailleStopped or isRunningOnSecureDesktop():
 			return
 		if outcome == "started":
@@ -218,21 +219,27 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 		def complete(result):
 			if result != wx.ID_OK:
 				return
+			log.info("Local test consent accepted")
 			try:
 				self._localTestService.start(
 					allowConnect=dialog.allowConnect.GetValue(),
 					remote=findRemoteConnection(getattr(globalPluginHandler, "runningPlugins", ())),
 				)
-			except Exception:
+			except Exception as error:
+				log.warning("Local test consent could not start (%s)", type(error).__name__)
 				self._notifyLocalTestSession("failed")
 
 		gui.runScriptModalDialog(dialog, callback=complete)
 
 	def _revokeLocalTestSession(self, _event=None, **_kwargs):
+		if self._localTestSession.active():
+			log.info("Revoking local test authorization after explicit request or desktop transition")
 		self._localTestService.stop()
 
 	def _handleLocalTestLock(self, isNowLocked):
 		if isNowLocked:
+			if self._localTestSession.active():
+				log.info("Revoking local test authorization after session lock")
 			self._localTestService.stop()
 
 	@script(
@@ -423,6 +430,8 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 			super().terminate()
 
 	def _handlePostConfigProfileSwitch(self):
+		if self._localTestSession.active():
+			log.info("Revoking local test authorization after configuration profile switch")
 		self._localTestService.stop()
 		oldOperatingMode = configuration.getOperatingMode(True)
 		newOperatingMode = configuration.getOperatingMode(False)

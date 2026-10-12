@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -14,6 +15,8 @@ from .localTestIpc import waitForMainThreadStatus
 from .localTestRemote import RemoteConnection
 from .localTestSession import LocalStatusSession
 from .localTestTransport import descriptorPath, publishDescriptor, sanitizeReply, serveConnection
+
+_log = logging.getLogger(__name__)
 
 
 class LocalTestService:
@@ -85,6 +88,7 @@ class LocalTestService:
 					descriptor.authKey,
 					time.time() + 300,
 				)
+				_log.info("Local test IPC endpoint published")
 				self._dispatch(
 					lambda: self._notify("started") if self.session.isCurrent(descriptor) else None,
 				)
@@ -106,8 +110,16 @@ class LocalTestService:
 					cancelled.wait(0.1)
 		except CancelledError:
 			pass
-		except Exception:
+		except Exception as error:
 			outcome = "failed"
+			# Report only a class and numeric OS code, never an exception body,
+			# traceback, credential, pipe address, or user path.
+			winerror = getattr(error, "winerror", None)
+			_log.warning(
+				"Local test IPC worker failed (%s, WinError %s)",
+				type(error).__name__,
+				winerror if type(winerror) is int else "unavailable",
+			)
 		finally:
 			self.session.stop()
 			if path is not None and published is not None:

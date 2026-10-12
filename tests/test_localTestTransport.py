@@ -371,9 +371,14 @@ class WindowsTransportTests(unittest.TestCase):
 		self.assertEqual(self.statusCalls, 0)
 
 	def test_startup_publication_failure_revokes_credentials_and_closes_pipe(self):
-		with mock.patch.object(serviceModule, "publishDescriptor", side_effect=OSError("private path")):
+		with (
+			mock.patch.object(serviceModule, "publishDescriptor", side_effect=OSError("private path")),
+			self.assertLogs(serviceModule.__name__, level="WARNING") as messages,
+		):
 			self.service.start(allowConnect=True, remote=None)
 			self.until(lambda: not self.service.worker.is_alive())
+		self.assertIn("OSError", "\n".join(messages.output))
+		self.assertNotIn("private path", "\n".join(messages.output))
 		self.assertFalse(self.session.active())
 		self.assertIn("failed", self.notifications)
 		self.assertFalse(self.path.exists())
