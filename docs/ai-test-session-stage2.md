@@ -1,8 +1,9 @@
 # Stage 2 authorized local test sessions
 
 This branch implements an opt-in Windows endpoint. Importing the add-on does
-not start IPC or grant consent. The development build has not been installed
-into the user's running NVDA or validated against live Orca/physical braille.
+not start IPC or grant consent. Authorized live testing installed development
+version 20261012.0.1 into NVDA 2026.2. Live consent activation is still unresolved;
+Orca speech and physical braille have not been validated.
 
 ## Accessible authorization
 
@@ -119,6 +120,13 @@ exceptions, screen contents or braille text.
 
 ## Validation and remaining acceptance
 
+An incremental packaging regression changes the version in both directions and
+checks the archive manifest. SCons actions track metadata changes, including
+documentation titles, and packages exclude Python bytecode. This fixes a live
+installation attempt whose development filename contained a stale manifest version.
+Startup diagnostics expose only fixed lifecycle outcomes, exception classes and
+numeric Windows error codes, without paths, credentials or exception bodies.
+
 Windows tests exercise real pipes, protected kernel DACLs, denial with a
 restricted unrelated-identity token, DPAPI, first-instance collisions, wrong
 keys, oversized frames, repeated requests, response draining, idle expiry and
@@ -127,10 +135,17 @@ cover saved settings, user-session preservation, partial failure, connection
 timeout, replacement races and log redaction. Existing speech/protocol/braille
 tests and packaging checks must also pass.
 
+Authorized preflight confirms installed sources match the branch, NVDA and the
+launcher use the same Windows account/session, and the Linux SSH readiness check
+passes without restarting Orca. After reported dialog completion, the actual
+launcher still finds no consent descriptor or pipe, and NVDA debug logs contain
+neither the consent callback nor a worker failure. This activation failure needs
+live diagnosis. Saved Windows controlling-relay host/key settings are also absent.
+
 An unrelated restricted token is a kernel security regression, not a live
-second-account/network acceptance run. Before release, separately authorize
-and verify the NVDA dialog with keyboard/screen-reader use, install/reload the
-built add-on, test a real relay and configured Orca session, revoke/expire while
+second-account/network acceptance run. Before release, verify live consent and
+the NVDA dialog with keyboard/screen-reader use, test a real relay and configured
+Orca session, revoke/expire while
 connected, check lock/profile/shutdown, and confirm speech, braille panning/
 routing, and physical display output. Automated kernel tests and mocks do not
 prove those outcomes. Do not merge either PR until review and acceptance.
