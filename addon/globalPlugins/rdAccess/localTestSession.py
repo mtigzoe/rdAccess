@@ -13,6 +13,7 @@ import secrets
 import threading
 from collections.abc import Callable
 from concurrent.futures import CancelledError
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -120,11 +121,8 @@ class LocalStatusSession:
 		self._consent.revoke()
 		self._descriptor = None
 		if timer is not None:
-			try:
+			with suppress(Exception):
 				timer.cancel()
-			except Exception:
-				# Timer cancellation must never restore or delay revocation.
-				pass
 
 	def stop(self) -> None:
 		"""Revoke pending waits and credentials without starting a listener."""

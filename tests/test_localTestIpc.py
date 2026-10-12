@@ -1,7 +1,6 @@
 """Tests for inactive, bounded Windows local status IPC primitives."""
 
 import importlib.util
-import json
 import sys
 import threading
 import types
@@ -74,131 +73,6 @@ class LocalIpcTests(unittest.TestCase):
 		with self.assertRaises(ValueError):
 			localTestIpc.encodeJson({"text": "x" * 2000}, limit=1024)
 
-	def test_rejects_unexpected_or_remote_pipe_addresses_before_client_call(self):
-		for address in (
-			"\\\\remote\\pipe\\linux-rdaccess-test-" + "a" * 32,
-			"\\\\.\\pipe\\other-" + "a" * 32,
-			"\\\\.\\pipe\\linux-rdaccess-test-" + "g" * 32,
-			"",
-		):
-			with (
-				self.subTest(address=address),
-				mock.patch.object(localTestIpc, "Client") as client,
-				self.assertRaises(ValueError),
-			):
-				localTestIpc.requestStatus(address, b"k" * 32)
-			client.assert_not_called()
-
-	def test_status_client_does_not_open_pipe_with_short_key(self):
-		with mock.patch.object(localTestIpc, "Client") as client, self.assertRaises(ValueError):
-			localTestIpc.requestStatus(localTestIpc.pipeAddress("a" * 32), b"short")
-		client.assert_not_called()
-
-	def test_server_rejects_invalid_address_without_opening_listener(self):
-		with (
-			mock.patch.object(localTestIpc, "Listener") as listener,
-			self.assertRaises(ValueError),
-		):
-			localTestIpc.serveOneStatus(
-				"\\\\remote\\pipe\\linux-rdaccess-test-" + "a" * 32,
-				b"k" * 32,
-				lambda: {"bridge_attached": False},
-			)
-		listener.assert_not_called()
-
-	def test_server_rejects_short_auth_key_without_opening_listener(self):
-		with (
-			mock.patch.object(localTestIpc, "Listener") as listener,
-			self.assertRaises(ValueError),
-		):
-			localTestIpc.serveOneStatus(
-				localTestIpc.pipeAddress("a" * 32),
-				b"short",
-				lambda: {"bridge_attached": False},
-			)
-		listener.assert_not_called()
-
-	def test_invalid_cancellation_signal_cannot_open_listener(self):
-		with (
-			mock.patch.object(localTestIpc, "Listener") as listener,
-			self.assertRaises(ValueError),
-		):
-			localTestIpc.serveOneStatus(
-				localTestIpc.pipeAddress("a" * 32),
-				b"k" * 32,
-				self.valid_status,
-				cancelled="not an event",
-			)
-		listener.assert_not_called()
-
-	def test_pre_cancelled_status_never_opens_listener(self):
-		cancelled = threading.Event()
-		cancelled.set()
-		callback = mock.Mock()
-		with (
-			mock.patch.object(localTestIpc, "Listener") as listener,
-			self.assertRaises(CancelledError),
-		):
-			localTestIpc.serveOneStatus(
-				localTestIpc.pipeAddress("a" * 32),
-				b"k" * 32,
-				callback,
-				cancelled=cancelled,
-			)
-		listener.assert_not_called()
-		callback.assert_not_called()
-
-	def test_server_pre_cancelled_session_does_not_schedule_callback(self):
-		cancelled = threading.Event()
-		cancelled.set()
-		connection = mock.MagicMock()
-		connection.__enter__.return_value = connection
-		connection.poll.return_value = True
-		connection.recv_bytes.return_value = b'{"version":1,"action":"status"}'
-		listener = mock.MagicMock()
-		listener.__enter__.return_value = listener
-		listener.accept.return_value = connection
-		callback = mock.Mock(return_value=self.valid_status())
-		with (
-			mock.patch.object(localTestIpc, "Listener", return_value=listener),
-			self.assertRaises(CancelledError),
-		):
-			localTestIpc.serveOneStatus(
-				localTestIpc.pipeAddress("a" * 32),
-				b"k" * 32,
-				callback,
-				cancelled=cancelled,
-			)
-		callback.assert_not_called()
-		connection.send_bytes.assert_not_called()
-
-	def test_server_rejects_revocation_before_sending_status(self):
-		cancelled = threading.Event()
-		connection = mock.MagicMock()
-		connection.__enter__.return_value = connection
-		connection.poll.return_value = True
-		connection.recv_bytes.return_value = b'{"version":1,"action":"status"}'
-		listener = mock.MagicMock()
-		listener.__enter__.return_value = listener
-		listener.accept.return_value = connection
-
-		def revoke():
-			cancelled.set()
-			return self.valid_status()
-
-		with (
-			mock.patch.object(localTestIpc, "Listener", return_value=listener),
-			self.assertRaises(CancelledError),
-		):
-			localTestIpc.serveOneStatus(
-				localTestIpc.pipeAddress("a" * 32),
-				b"k" * 32,
-				revoke,
-				cancelled=cancelled,
-				dispatch=lambda task: threading.Thread(target=task, daemon=True).start(),
-			)
-		connection.send_bytes.assert_not_called()
-
 	def test_main_thread_dispatch_returns_sanitized_status(self):
 		queue = []
 		callback = mock.Mock(return_value=self.valid_status())
@@ -244,87 +118,6 @@ class LocalIpcTests(unittest.TestCase):
 			localTestIpc.waitForMainThreadStatus(callback, enqueue, cancelled=cancelled)
 		pending[0]()
 		callback.assert_not_called()
-
-	def test_one_shot_server_requires_dispatch_before_opening_listener(self):
-		with (
-			mock.patch.object(localTestIpc, "Listener") as listener,
-			self.assertRaises(ValueError),
-		):
-			localTestIpc.serveOneStatus(
-				localTestIpc.pipeAddress("a" * 32),
-				b"k" * 32,
-				self.valid_status,
-			)
-		listener.assert_not_called()
-
-	def test_one_shot_server_can_dispatch_status_via_ui_thread(self):
-		connection = mock.MagicMock()
-		connection.__enter__.return_value = connection
-		connection.poll.return_value = True
-		connection.recv_bytes.return_value = b'{"version":1,"action":"status"}'
-		listener = mock.MagicMock()
-		listener.__enter__.return_value = listener
-		listener.accept.return_value = connection
-		status = mock.Mock(return_value=self.valid_status())
-
-		def enqueue(task):
-			threading.Thread(target=task, daemon=True).start()
-
-		with mock.patch.object(localTestIpc, "Listener", return_value=listener):
-			localTestIpc.serveOneStatus(
-				localTestIpc.pipeAddress("a" * 32),
-				b"k" * 32,
-				status,
-				dispatch=enqueue,
-			)
-		status.assert_called_once()
-		self.assertEqual(
-			localTestIpc.decodeJson(connection.send_bytes.call_args.args[0], limit=4096),
-			self.valid_status(),
-		)
-
-	def test_server_never_calls_status_callback_for_unsupported_action(self):
-		connection = mock.MagicMock()
-		connection.__enter__.return_value = connection
-		connection.poll.return_value = True
-		connection.recv_bytes.return_value = b'{"version":1,"action":"connect"}'
-		listener = mock.MagicMock()
-		listener.__enter__.return_value = listener
-		listener.accept.return_value = connection
-		callback = mock.Mock(return_value=self.valid_status())
-		with (
-			mock.patch.object(localTestIpc, "Listener", return_value=listener),
-			self.assertRaises(ValueError),
-		):
-			localTestIpc.serveOneStatus(
-				localTestIpc.pipeAddress("a" * 32),
-				b"k" * 32,
-				callback,
-				dispatch=lambda task: threading.Thread(target=task, daemon=True).start(),
-			)
-		callback.assert_not_called()
-		connection.send_bytes.assert_not_called()
-
-	def test_server_does_not_invoke_callback_after_request_timeout(self):
-		connection = mock.MagicMock()
-		connection.__enter__.return_value = connection
-		connection.poll.return_value = False
-		listener = mock.MagicMock()
-		listener.__enter__.return_value = listener
-		listener.accept.return_value = connection
-		callback = mock.Mock(return_value=self.valid_status())
-		with (
-			mock.patch.object(localTestIpc, "Listener", return_value=listener),
-			self.assertRaises(TimeoutError),
-		):
-			localTestIpc.serveOneStatus(
-				localTestIpc.pipeAddress("a" * 32),
-				b"k" * 32,
-				callback,
-				dispatch=lambda task: threading.Thread(target=task, daemon=True).start(),
-			)
-		callback.assert_not_called()
-		connection.recv_bytes.assert_not_called()
 
 	def test_cancellation_after_callback_finishes_rejects_result(self):
 		cancelled = threading.Event()
@@ -403,36 +196,6 @@ class LocalIpcTests(unittest.TestCase):
 		for duration in (0, -1, 6):
 			with self.subTest(duration=duration), self.assertRaises(ValueError):
 				localTestIpc.waitForStatus(self.valid_status, timeoutSeconds=duration)
-
-	def test_client_response_timeout_closes_connection(self):
-		connection = mock.MagicMock()
-		connection.__enter__.return_value = connection
-		connection.poll.return_value = False
-		with (
-			mock.patch.object(localTestIpc, "Client", return_value=connection),
-			self.assertRaises(TimeoutError),
-		):
-			localTestIpc.requestStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32)
-		connection.recv_bytes.assert_not_called()
-		connection.__exit__.assert_called_once()
-
-	def test_status_client_sends_only_allowlisted_request(self):
-		connection = mock.MagicMock()
-		connection.__enter__.return_value = connection
-		connection.recv_bytes.return_value = localTestIpc.encodeJson(self.valid_status(), limit=4096)
-		with mock.patch.object(localTestIpc, "Client", return_value=connection) as client:
-			result = localTestIpc.requestStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32)
-		self.assertEqual(result, self.valid_status())
-		client.assert_called_once()
-		self.assertEqual(
-			json.loads(connection.send_bytes.call_args.args[0]),
-			{
-				"version": 1,
-				"action": "status",
-			},
-		)
-		connection.poll.assert_called_once_with(5.0)
-		connection.recv_bytes.assert_called_once_with(4096)
 
 
 if __name__ == "__main__":

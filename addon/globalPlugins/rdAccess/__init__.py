@@ -2,6 +2,8 @@
 # Copyright 2023 Leonard de Ruijter <alderuijter@gmail.com>
 # License: GNU General Public License version 2.0 or later
 
+from __future__ import annotations
+
 import atexit
 import subprocess
 import threading
@@ -19,14 +21,17 @@ import gui
 import inputCore
 import keyboardHandler
 import synthDriverHandler
+import ui
 import winUser
 import wx
 from hwIo import ioThread
 from logHandler import log
+from scriptHandler import script
 from utils.security import isRunningOnSecureDesktop, post_sessionLockStateChanged
 from winAPI.secureDesktop import post_secureDesktopStateChange
 
 from . import directoryChanges, handlers, localTestIpc, localTestRequest, localTestStatus, settingsPanel
+from .localTestService import LocalTestService
 from .localTestSession import LocalStatusSession
 from .synthDetect import SynthDetector
 
@@ -146,8 +151,17 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def __init__(self):
 		super().__init__()
-		# Inert until an accessible user-consent workflow is implemented.
+		self._localTestUiInitialized = False
 		self._localTestSession = LocalStatusSession()
+		self._localTestService = LocalTestService(
+			self._localTestSession,
+			self.getLocalTestStatus,
+			wx.CallAfter,
+			lambda: self._localTestUiInitialized
+			and not isRunningOnSecureDesktop()
+			and not self._remoteAccessSemanticBrailleStopped,
+			self._notifyLocalTestSession,
+		)
 		if isRunningOnSecureDesktop():
 			return
 		log.info(f"Initializing {addon.name} version {addon.version}")
@@ -165,7 +179,75 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._handlePostConfigProfileSwitch,
 		)
 		self._remoteAccessSemanticBrailleStopped = False
+		post_secureDesktopStateChange.register(self._revokeLocalTestSession)
+		post_sessionLockStateChanged.register(self._handleLocalTestLock)
+		assert gui.mainFrame is not None
+		toolsMenu = gui.mainFrame.sysTrayIcon.toolsMenu
+		# Translators: NVDA Tools command to explicitly authorize a temporary local test session.
+		self._authorizeTestMenu = toolsMenu.Append(wx.ID_ANY, _("Authorize Linux test session…"))
+		# Translators: NVDA Tools command to revoke test-session permissions immediately.
+		self._revokeTestMenu = toolsMenu.Append(wx.ID_ANY, _("Revoke Linux test session"))
+		gui.mainFrame.sysTrayIcon.Bind(wx.EVT_MENU, self._showLocalTestAuthorization, self._authorizeTestMenu)
+		gui.mainFrame.sysTrayIcon.Bind(wx.EVT_MENU, self._revokeLocalTestSession, self._revokeTestMenu)
+		self._localTestUiInitialized = True
 		wx.CallAfter(self._refreshRemoteAccessSemanticBraille)
+
+	def _notifyLocalTestSession(self, outcome):
+		if self._remoteAccessSemanticBrailleStopped or isRunningOnSecureDesktop():
+			return
+		if outcome == "started":
+			# Translators: Announces that the explicitly authorized local endpoint is ready.
+			ui.message(_("Linux test session authorized for five minutes"))
+		elif outcome == "failed":
+			# Translators: Generic failure message; never includes secrets or raw IPC errors.
+			ui.message(_("Could not start the Linux test session. Authorization revoked."))
+		else:
+			# Translators: Announces expiry or completion of test-session authorization.
+			ui.message(_("Linux test session authorization ended"))
+
+	def _showLocalTestAuthorization(self, _event=None):
+		from .localTestDialog import LocalTestAuthorizationDialog
+		from .localTestRemote import findRemoteConnection
+
+		if isRunningOnSecureDesktop() or self._remoteAccessSemanticBrailleStopped:
+			return
+		dialog = LocalTestAuthorizationDialog(gui.mainFrame)
+
+		def complete(result):
+			if result != wx.ID_OK:
+				return
+			try:
+				self._localTestService.start(
+					allowConnect=dialog.allowConnect.GetValue(),
+					remote=findRemoteConnection(getattr(globalPluginHandler, "runningPlugins", ())),
+				)
+			except Exception:
+				self._notifyLocalTestSession("failed")
+
+		gui.runScriptModalDialog(dialog, callback=complete)
+
+	def _revokeLocalTestSession(self, _event=None, **_kwargs):
+		self._localTestService.stop()
+
+	def _handleLocalTestLock(self, isNowLocked):
+		if isNowLocked:
+			self._localTestService.stop()
+
+	@script(
+		# Translators: Input Gestures description for the test-session consent dialog.
+		description=_("Authorize a temporary Linux test session"),
+		category="RDAccess",
+	)
+	def script_authorizeLocalTestSession(self, _gesture):
+		self._showLocalTestAuthorization()
+
+	@script(
+		# Translators: Input Gestures description for immediate revocation.
+		description=_("Revoke Linux test session authorization"),
+		category="RDAccess",
+	)
+	def script_revokeLocalTestSession(self, _gesture):
+		self._localTestService.stop()
 
 	def getLocalTestStatus(self):
 		"""Return non-sensitive connection facts to trusted local add-on code."""
@@ -306,12 +388,21 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def terminate(self):
 		try:
-			self._localTestSession.stop()
+			self._localTestService.stop()
 			self._remoteAccessSemanticBrailleStopped = True
+			if self._localTestUiInitialized:
+				self._localTestUiInitialized = False
+				post_secureDesktopStateChange.unregister(self._revokeLocalTestSession)
+				post_sessionLockStateChanged.unregister(self._handleLocalTestLock)
+				assert gui.mainFrame is not None
+				for item in (self._authorizeTestMenu, self._revokeTestMenu):
+					gui.mainFrame.sysTrayIcon.Unbind(wx.EVT_MENU, source=item)
+					gui.mainFrame.sysTrayIcon.toolsMenu.DestroyItem(item)
 			if self._remoteAccessSemanticBraille is not None:
 				self._remoteAccessSemanticBraille.terminate()
 				self._remoteAccessSemanticBraille = None
 			if not isRunningOnSecureDesktop():
+				assert gui.mainFrame is not None
 				settingsPanel.RemoteDesktopSettingsPanel.post_onSave.unregister(
 					self._handlePostConfigProfileSwitch,
 				)
@@ -330,6 +421,7 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 			super().terminate()
 
 	def _handlePostConfigProfileSwitch(self):
+		self._localTestService.stop()
 		oldOperatingMode = configuration.getOperatingMode(True)
 		newOperatingMode = configuration.getOperatingMode(False)
 		oldClient = oldOperatingMode & configuration.OperatingMode.CLIENT

@@ -1,221 +1,133 @@
-# Stage 2 local AI test-session security boundary
+# Stage 2 authorized local test sessions
 
-This PR introduces internal, read-only status and request-policy helpers.
-**It does not expose an endpoint or automate NVDA Remote Access connection.**
+This branch implements an opt-in Windows endpoint. Importing the add-on does
+not start IPC or grant consent. The development build has not been installed
+into the user's running NVDA or validated against live Orca/physical braille.
 
-## Current behavior
+## Accessible authorization
 
-- `RDGlobalPlugin.getLocalTestStatus()` returns a sanitized internal snapshot
-  from the currently attached Remote Access semantic-braille bridge.
-- `localTestRequest.validateRequest()` accepts only the exact dictionary
-  `{"version": 1, "action": "status"}`. It rejects connection, keyboard,
-  credential, and unexpected fields.
-- Neither helper writes a file, opens a socket or named pipe, stores a secret,
-  launches a process, or sends a keystroke.
-- A running NVDA process and an attached bridge do not prove an active remote
-  connection, speech presentation, or physical braille output.
+NVDA Tools contains **Authorize Linux test session…** and **Revoke Linux test
+session**. The consent dialog uses ordinary labelled wx controls and keyboard
+buttons. **Allow connection using saved Remote Access relay settings** is
+unchecked by default. Confirming authorizes five minutes of same-user status
+queries, plus saved-connection requests only when that box is checked.
 
-## Required before any external IPC is implemented
+Both commands are also assignable in NVDA Input Gestures under RDAccess. No
+default gesture changes existing Remote Access or braille shortcuts.
 
-1. Select a **Windows-only, local**, same-user authenticated endpoint.
-   Explicitly prove that another Windows account and network users cannot
-   access it. A request validator is not authentication.
-2. Make the endpoint **off by default**, with an accessible NVDA-controlled
-   opt-in and explicit per-session approval. Ensure secure-desktop behavior
-   fails closed.
-3. Authenticate and authorize each operation, not just connection setup.
-   Bound request sizes, processing duration, rate, and response contents.
-4. Dispatch NVDA operations to its main thread. Protect against stale
-   transports, disconnection, profile changes, and plugin termination.
-5. For eventual remote connection, reuse the add-on's *existing* saved
-   connection through an explicitly supported API. Do not accept relay
-   credentials from the AI client or expose secrets in replies or logs.
-6. Support cancellation and cleanup without disconnecting or restarting an
-   NVDA session owned by the user. Never implement unguarded keyboard injection.
-7. Verify behavior in Windows CI and separate consented live testing before
-   enabling automatic connection. Preserve existing manual workflows.
+Consent expires automatically and is revoked on profile changes, lock,
+secure-desktop transitions, and plugin termination. Revoke immediately marks
+credentials invalid; cleanup runs on a worker without joining on NVDA's GUI
+thread. The consent dialog explains that test-owned connections end with
+authorization, while pre-existing connections remain intact.
 
-The Linux launcher in PR #75 can already launch Windows NVDA on request and
-start the Linux side with explicit authorization. The missing Windows add-on
-auto-connect remains separately gated, and stage 3 remains a human-observed
-acceptance matrix until real instrumentation exists.
+## Windows transport and credential boundary
 
-## Inactive authenticated IPC transport primitives
+`localTestWindows.py` privately binds Win32 APIs. It creates a byte-mode pipe
+with overlapped I/O, `FILE_FLAG_FIRST_PIPE_INSTANCE`, and
+`PIPE_REJECT_REMOTE_CLIENTS`. The protected DACL denies network logons and
+grants exactly the process TokenUser SID explicit read/write rights, excluding
+`FILE_CREATE_PIPE_INSTANCE`. Handles are not inheritable. There is no insecure
+default-ACL, TCP, multiprocessing/pickle, or non-Windows fallback.
 
-`localTestIpc.py` now contains an **unactivated** Windows named-pipe
-prototype: bounded JSON request/response encoding, a status-only client,
-and a one-request server. The server is **not imported/started by the NVDA
-global plugin**. No executable test-session endpoint exists yet.
+Connect, read, write, acknowledgement and callback waits have deadlines and
+check cancellation. Idle accept observes cancellation within a 25 ms polling
+interval. `CancelIoEx` cancels pending operations; completion is reaped before
+releasing OVERLAPPED buffers. This kernel completion wait is worker-only.
+Requests have an eight-second exchange deadline and main-thread dispatch has
+a five-second limit. A single worker serializes clients and limits accepted
+operations to ten per second. Clients that connect and then stop sending are
+bounded too. Response draining uses an acknowledgement rather than the
+blocking `FlushFileBuffers` API.
 
-`multiprocessing.connection` authenticates possession of an ephemeral
-per-session auth key at pipe connection time. This does not itself prove
-same-user isolation: the Windows named-pipe ACL still needs a separately
-verified security descriptor, and no token can be written to the repository,
-logs, subprocess arguments, or an unsecured file. A random-looking pipe name
-alone is not an authorization boundary.
+The endpoint name and a random 32-byte authentication key rotate with each
+consent. Every operation and response is HMAC-SHA256 authenticated, binding
+fresh server/client nonces and a direction-specific prefix. Stale challenges,
+tampered actions, wrong keys and reflected responses fail before dispatch.
+Request frames are limited to 1024 bytes; responses to 4096 bytes. JSON
+rejects duplicate fields, nonfinite constants, and nesting beyond eight levels.
 
-Before activating the listener: enforce per-user ACLs, create accessible
-NVDA-side opt-in/stop controls, integrate the ephemeral consent gate, marshal
-status callbacks safely to NVDA's event thread, add request timeouts and
-shutdown behavior, and write Windows integration tests. Automatic connect
-and key injection remain explicitly out of scope.
+Discovery uses `%LOCALAPPDATA%\rdaccess-test-session.bin`, containing only
+user-scoped DPAPI ciphertext. The file is created under a protected DACL with
+exactly one user allow ACE and a network deny ACE, then atomically published.
+Only the ephemeral pipe key is in that encrypted descriptor; the saved relay
+key is never exported. The worker removes its own descriptor on expiry, stop,
+or failure. An NVDA crash can leave ciphertext behind, but the absent pipe
+and expired credentials cannot authorize requests. Same-account programs are
+inside this consent boundary; it does not isolate mutually hostile programs
+running as the same Windows user, or a system administrator.
 
-### Timeout scope
+The wire operations are exactly `{"version":1,"action":"status"}`,
+`connect`, and `cancel`. Extra fields, relay passwords, host overrides,
+screen contents, clipboard, keystrokes and braille text are rejected. Responses
+contain only a fixed result enum and the allowlisted status schema. Physical
+braille remains `unverified`.
 
-The inactive IPC primitives now require the accepted connection to produce
-its request, and the client to receive its response, within five seconds.
-These `poll()` checks **do not** bound `Listener.accept()`, initial client
-pipe connection, or a slow NVDA status callback. The listener must remain
-disabled until a cancellable lifecycle and Windows same-user pipe ACL have
-been implemented and tested; these receive timeouts alone are insufficient.
+## NVDA connection management
 
-### Status callback timeout limitation
+`localTestService.py` authenticates before queuing work with `wx.CallAfter`.
+The queued function rechecks current descriptor identity and secure-desktop/
+lifecycle permissions. Timed-out or revoked queued work does not run.
 
-A read-only, thread-safe status callback can now be awaited for at most five
-seconds. The IPC request fails on timeout, but the daemon callback thread
-**is not cancelled** and might continue running afterward. This helper is
-**not safe for NVDA APIs that require the main event thread**, and it must
-not be used for keyboard actions or connecting Remote Access. A proper NVDA
-main-thread dispatcher with lifecycle cancellation is still required before
-live activation. Listener acceptance and Windows pipe ACL requirements are
-also unresolved.
+`localTestRemote.py` uses NVDA's built-in `_remoteClient` connection API and
+its actual saved `controlServer` configuration. Only an existing relay in
+**Control another computer** mode is accepted. It does not enable disabled
+Remote Access, accept AI-supplied relay settings, start a relay, use controlled
+mode, bypass certificate checks, or enable keyboard control. Existing pending,
+reconnecting, follower and local-server sessions prevent a duplicate connect.
 
-### Cooperative cancellation of status waits
+The adapter tracks leader-session identity. A 30-second main-thread watchdog
+cleans up failed or disconnected test-owned sessions. Revocation closes only
+the captured owned transport, on a worker, then rechecks identity before
+calling the core leader-disconnect API on the main thread. Socket shutdown
+unblocks core's queue drain. It never disconnects a replacement user session.
+Upstream transport construction logs its channel; a retained logger filter is
+installed before connect to redact the saved relay key in delayed log records.
 
-The internal `waitForStatus()` helper now accepts an optional cancellation
-event. An already-revoked request does not start a callback, and a pending
-wait can return early when the event is set. **Cancellation does not kill the
-status callback worker or close a blocked named-pipe `accept()` call.** This
-is still a component-level primitive, not an activated NVDA session listener.
+The legacy NVDARemote API has been inspected and is recognized for existing
+connection status/reuse. New legacy automatic connections fail closed because
+its cleanup invokes an inline keyboard-hook join. Its existing manual behavior
+and the semantic bridge's legacy discovery remain unchanged. TeleNVDA and
+other unknown connection APIs are not guessed.
 
-### Session-to-waiter revocation signal
+## Companion launcher
 
-`LocalStatusSession.cancellationEvent()` now returns an event associated with
-one active consent session. Passing this event to the inactive
-`waitForStatus(..., cancelled=event)` primitive allows `stop()` or credential
-rotation to interrupt a status *wait*. Once replaced, an old session's event
-stays signalled and does not affect the newly created session. Expiration also
-signals the event when `active()`, `descriptor()`, or `cancellationEvent()`
-checks discover expiry; no background expiration scheduler is installed.
-This still **cannot interrupt a blocked named-pipe accept or stop a callback
-thread**, and it does not enable a live listener.
+Companion PR #75's branch implements:
 
-### Concurrent session lifecycle
+```powershell
+python .\linux_rdaccess_test_session.py start-all
+```
 
-`LocalStatusSession` now serializes credential creation, rotation, consent
-revocation, and reads of the active descriptor under one reentrant lock.
-This prevents concurrent launcher requests from observing a partially
-rotated in-memory session. Tests exercise concurrent `begin()` and
-`stop()` calls. This only protects the inactive session controller;
-it does not enforce Windows pipe ACLs or implement listener cancellation.
+After NVDA consent, this validates encrypted credentials, performs read-only
+SSH readiness checks, then connects/reuses Windows Remote Access. The current
+Linux `connect` API normally restarts Orca, so `start-all` deliberately reuses
+the configured running/reconnecting Orca session. Incomplete Linux setup is a
+reported prerequisite, not an implicit restart. SSH requires a verified host
+key and noninteractive authentication. Failures or interruption request cleanup
+of only a Windows connection created under this consent. `nvda-status` reads
+status; `cancel` cancels a test-owned connection. Revoke in NVDA ends IPC itself.
 
-### Stale descriptor rejection
+The companion vendors the same four dependency-free IPC modules, with shared
+wire rules. JSON CLI output never includes credentials, endpoint names, raw
+exceptions, screen contents or braille text.
 
-`LocalStatusSession.isCurrent(descriptor)` now checks descriptor **identity**
-against the still-active session under the same lifecycle lock. A descriptor
-obtained before stop, rotation, or expiration is rejected. This check must be
-performed again when a future request is processed; it does not replace
-transport authentication or Windows ACL enforcement.
+## Validation and remaining acceptance
 
-### Invalid consent rotation
+Windows tests exercise real pipes, protected kernel DACLs, denial with a
+restricted unrelated-identity token, DPAPI, first-instance collisions, wrong
+keys, oversized frames, repeated requests, response draining, idle expiry and
+revocation, and a client that never sends a request. Isolated connection tests
+cover saved settings, user-session preservation, partial failure, connection
+timeout, replacement races and log redaction. Existing speech/protocol/braille
+tests and packaging checks must also pass.
 
-The inactive session controller now validates requested consent duration
-before replacing an existing session. An invalid duration (including booleans,
-floats, or values outside 1–300 seconds) raises an error without revoking
-the previously authorized session. This change does not activate a listener.
+An unrelated restricted token is a kernel security regression, not a live
+second-account/network acceptance run. Before release, separately authorize
+and verify the NVDA dialog with keyboard/screen-reader use, install/reload the
+built add-on, test a real relay and configured Orca session, revoke/expire while
+connected, check lock/profile/shutdown, and confirm speech, braille panning/
+routing, and physical display output. Automated kernel tests and mocks do not
+prove those outcomes. Do not merge either PR until review and acceptance.
 
-### Failed credential rotation
-
-Session credential allocation now occurs before old credentials are revoked.
-If generating a replacement pipe identifier or auth key fails, the previously
-active, consented session remains valid and its cancellation event remains
-unset. This does not activate an IPC listener or alter Windows processes.
-
-### Consent token allocation failure
-
-Credential rotation now prepares both the new pipe authentication key and
-its separate consent secret before revoking the existing session. Failure to
-generate either secret leaves the previously authorized session intact.
-The live IPC listener remains disabled; no Windows services or NVDA sessions
-are altered by these changes.
-
-### Revocation-aware read-only status dispatch
-
-The inactive session controller now offers `readStatus(descriptor, callback)`.
-It checks the descriptor before calling the bounded status helper and checks
-it again before returning results. Stopping or rotating a session therefore
-prevents an already completed callback from returning status to an obsolete
-session. This is strictly an in-process helper: it does not start a named-pipe
-listener, grant Windows access, or connect NVDA Remote Access. The callback
-worker can still continue after a timeout; callers must provide only safe,
-thread-independent, read-only callbacks.
-
-### Completion-time revocation check
-
-The bounded status callback helper now checks its cancellation event once
-more after callback completion, before returning a result. This closes a
-small race where revocation occurred after the wait loop observed completion.
-The session controller independently rechecks descriptor identity before
-returning status. Neither change activates the Windows named-pipe listener.
-
-### Optional revocation event on one-shot status transport
-
-The inactive `serveOneStatus()` transport now accepts an optional cancellation
-event. A cancelled callback does not generate a status response; revocation is
-checked again immediately before sending a response. This does **not**
-interrupt a blocking Windows named-pipe `accept()` or replace a same-user ACL,
-and no IPC listener is enabled by the NVDA global plugin.
-
-### Session-bound one-shot dispatch (inactive)
-
-`LocalStatusSession.serveStatusOnce()` now forwards only the current session's
-in-memory pipe address, authentication key and cancellation event to the
-one-shot status primitive. Stale descriptors are rejected before dispatch.
-This method is **not connected** to the NVDA plugin and must not be activated
-until the blocking accept and same-user ACL requirements have been addressed.
-
-### Active consent-expiry cancellation
-
-A daemon expiry timer now revokes an idle session when its consent lifetime
-elapses, without requiring a client to poll status. Stopping or rotating the
-session cancels the prior timer, and an old timer callback cannot revoke a
-replacement session. This does not interrupt the underlying blocking Windows
-named-pipe `accept()`; the transport is still inactive pending secure ACLs and
-cancellable listener integration.
-
-### NVDA global-plugin lifecycle ownership
-
-The NVDA global plugin now creates an **inactive** `LocalStatusSession` on
-initialization (including secure-desktop startup) and revokes it on plugin
-termination. This provides one future cleanup boundary without opening any
-pipe, starting consent, exposing credentials, or connecting to Linux. The
-securely cancellable pipe listener and accessible user authorization workflow
-remain prerequisites before activating test-session IPC.
-
-### Bounded UI-thread status scheduling (inactive)
-
-`waitForMainThreadStatus(callback, dispatch)` provides an isolated read-only
-foundation for scheduling a snapshot on NVDA's main thread. It waits at most
-five seconds, rejects queued callbacks after timeout or cancellation, and
-sanitizes the returned schema. The supplied dispatcher must enqueue work on
-the actual UI thread; it must never execute inline. This is not yet wired to
-NVDA's `wx.CallAfter` or an active IPC listener, and queued callbacks that
-started before cancellation cannot be forcibly interrupted. Windows named
-pipe ACLs, cancellable accepts, and accessible opt-in remain blockers.
-
-### NVDA main-thread dispatch hook (inactive)
-
-`RDGlobalPlugin.getLocalTestStatusFromWorker()` now uses `wx.CallAfter`
-to schedule the existing allowlisted status request on NVDA's GUI thread
-and wait via the bounded, cancellable status helper. It must be invoked
-only from a worker thread. This method does not start a listener, grant
-consent, or initiate a Remote Access connection. Integration tests under
-a live NVDA environment are still necessary before exposing it through
-Windows IPC.
-
-### Prevent GUI-thread self-waits
-
-`getLocalTestStatusFromWorker()` now explicitly rejects invocation from
-Python's main thread before queuing `wx.CallAfter`, avoiding an otherwise
-avoidable five-second GUI-thread self-wait. This does not change the inactive
-listener state; Windows IPC ACL and cancellable accept remain outstanding.
+Win32 references: [pipe security and rights](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights),
+[overlapped pipe I/O](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-server-using-overlapped-i-o).

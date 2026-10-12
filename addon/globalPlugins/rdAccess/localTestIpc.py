@@ -14,7 +14,6 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import CancelledError
-from multiprocessing.connection import Client, Listener
 from typing import Any
 
 from .localTestRequest import validateRequest
@@ -54,12 +53,38 @@ def decodeJson(data: bytes, *, limit: int) -> dict[str, Any]:
 	if type(limit) is not int or limit < 1 or type(data) is not bytes or len(data) > limit:
 		raise ValueError("Invalid message size")
 	try:
-		message = json.loads(data.decode("utf-8"))
-	except (UnicodeDecodeError, ValueError) as exc:
+		message = json.loads(
+			data.decode("utf-8"),
+			object_pairs_hook=_uniqueFields,
+			parse_constant=_invalidConstant,
+		)
+	except (UnicodeDecodeError, ValueError, RecursionError) as exc:
 		raise ValueError("Invalid JSON message") from exc
 	if type(message) is not dict:
 		raise ValueError("Expected an object")
+	pending = [(message, 0)]
+	while pending:
+		value, depth = pending.pop()
+		if depth > 8:
+			raise ValueError("Local test JSON nesting too deep")
+		if isinstance(value, dict):
+			pending.extend((child, depth + 1) for child in value.values())
+		elif isinstance(value, list):
+			pending.extend((child, depth + 1) for child in value)
 	return message
+
+
+def _uniqueFields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+	result: dict[str, Any] = {}
+	for key, value in pairs:
+		if key in result:
+			raise ValueError("Duplicate JSON field")
+		result[key] = value
+	return result
+
+
+def _invalidConstant(_value: str) -> None:
+	raise ValueError("Invalid JSON constant")
 
 
 _STATUS_FIELDS = {
@@ -100,12 +125,9 @@ def requestStatus(address: str, authKey: bytes) -> dict[str, Any]:
 	if type(authKey) is not bytes or len(authKey) < 32:
 		raise ValueError("Invalid authentication key")
 	validatePipeAddress(address)
-	with Client(address, family="AF_PIPE", authkey=authKey) as connection:
-		connection.send_bytes(encodeJson({"version": 1, "action": "status"}, limit=_MAX_REQUEST))
-		if not connection.poll(_RESPONSE_TIMEOUT_SECONDS):
-			raise TimeoutError("Local status response timed out")
-		reply = connection.recv_bytes(_MAX_RESPONSE)
-	return sanitizeStatus(decodeJson(reply, limit=_MAX_RESPONSE))
+	from .localTestTransport import request
+
+	return request(address, authKey, "status")["status"]
 
 
 def waitForStatus(
@@ -162,6 +184,7 @@ def waitForMainThreadStatus(
 	*,
 	timeoutSeconds: float = _RESPONSE_TIMEOUT_SECONDS,
 	cancelled: threading.Event | None = None,
+	sanitize: Callable[[Any], dict[str, Any]] = sanitizeStatus,
 ) -> dict[str, Any]:
 	"""Schedule a status snapshot on the host UI thread and wait without blocking it.
 
@@ -189,7 +212,7 @@ def waitForMainThreadStatus(
 			completed.set()
 			return
 		try:
-			result.append(sanitizeStatus(statusCallback()))
+			result.append(sanitize(statusCallback()))
 		except Exception as exc:
 			errors.append(exc)
 		finally:
@@ -239,23 +262,20 @@ def serveOneStatus(
 		raise CancelledError("Local status session revoked")
 	if dispatch is None:
 		raise ValueError("UI-thread dispatcher required")
-	# The multiprocessing listener's accept() is blocking and cannot be
-	# interrupted by the consent event. Do not activate this transport until
-	# the caller can terminate pending accepts and enforce same-user ACLs.
-	with (
-		Listener(address, family="AF_PIPE", authkey=authKey) as listener,
-		listener.accept() as connection,
-	):
-		if not connection.poll(_RESPONSE_TIMEOUT_SECONDS):
-			raise TimeoutError("Local status request timed out")
-		request = decodeJson(connection.recv_bytes(_MAX_REQUEST), limit=_MAX_REQUEST)
-		validateRequest(request)
-		if cancelled is not None and cancelled.is_set():
-			raise CancelledError("Local status session revoked")
-		if dispatch is None:
-			response = waitForStatus(statusCallback, cancelled=cancelled)
-		else:
-			response = waitForMainThreadStatus(statusCallback, dispatch, cancelled=cancelled)
-		if cancelled is not None and cancelled.is_set():
-			raise CancelledError("Local status session revoked")
-		connection.send_bytes(encodeJson(response, limit=_MAX_RESPONSE))
+	from .localTestTransport import sanitizeReply, serveConnection
+	from .localTestWindows import Pipe
+
+	cancelled = cancelled if cancelled is not None else threading.Event()
+	with Pipe.server(address) as pipe:
+		pipe.accept(cancelled, time.monotonic() + _RESPONSE_TIMEOUT_SECONDS)
+
+		def callback(action: str) -> dict[str, Any]:
+			validateRequest({"version": 1, "action": action})
+			return waitForMainThreadStatus(
+				lambda: {"result": "disconnected", "status": statusCallback()},
+				dispatch,
+				cancelled=cancelled,
+				sanitize=sanitizeReply,
+			)
+
+		serveConnection(pipe, authKey, callback, cancelled)

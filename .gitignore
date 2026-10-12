@@ -13,3 +13,6 @@ manifest.ini
 *.pdb
 *.lib
 *.exp
+.worktrees/
+.uv-cache/
+.prek-cache/
