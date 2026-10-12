@@ -274,6 +274,7 @@ class LocalIpcTests(unittest.TestCase):
 
 	def test_finished_callback_past_deadline_is_not_returned(self):
 		calls = iter((100.0, 100.02))
+
 		def clock():
 			return next(calls, 100.02)
 
