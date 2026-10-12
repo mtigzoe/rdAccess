@@ -202,3 +202,13 @@ the actual UI thread; it must never execute inline. This is not yet wired to
 NVDA's `wx.CallAfter` or an active IPC listener, and queued callbacks that
 started before cancellation cannot be forcibly interrupted. Windows named
 pipe ACLs, cancellable accepts, and accessible opt-in remain blockers.
+
+### NVDA main-thread dispatch hook (inactive)
+
+`RDGlobalPlugin.getLocalTestStatusFromWorker()` now uses `wx.CallAfter`
+to schedule the existing allowlisted status request on NVDA's GUI thread
+and wait via the bounded, cancellable status helper. It must be invoked
+only from a worker thread. This method does not start a listener, grant
+consent, or initiate a Remote Access connection. Integration tests under
+a live NVDA environment are still necessary before exposing it through
+Windows IPC.
