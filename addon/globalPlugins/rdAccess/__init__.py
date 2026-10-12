@@ -26,6 +26,7 @@ from utils.security import isRunningOnSecureDesktop, post_sessionLockStateChange
 from winAPI.secureDesktop import post_secureDesktopStateChange
 
 from . import directoryChanges, handlers, localTestRequest, localTestStatus, settingsPanel
+from .localTestSession import LocalStatusSession
 from .synthDetect import SynthDetector
 
 addon: addonHandler.Addon = addonHandler.getCodeAddon()
@@ -144,6 +145,8 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def __init__(self):
 		super().__init__()
+		# Inert until an accessible user-consent workflow is implemented.
+		self._localTestSession = LocalStatusSession()
 		if isRunningOnSecureDesktop():
 			return
 		log.info(f"Initializing {addon.name} version {addon.version}")
@@ -289,6 +292,7 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def terminate(self):
 		try:
+			self._localTestSession.stop()
 			self._remoteAccessSemanticBrailleStopped = True
 			if self._remoteAccessSemanticBraille is not None:
 				self._remoteAccessSemanticBraille.terminate()
