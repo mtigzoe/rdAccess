@@ -156,6 +156,62 @@ def waitForStatus(
 	return result[0]
 
 
+
+def waitForMainThreadStatus(
+	statusCallback: Callable[[], dict[str, Any]],
+	dispatch: Callable[[Callable[[], None]], None],
+	*,
+	timeoutSeconds: float = _RESPONSE_TIMEOUT_SECONDS,
+	cancelled: threading.Event | None = None,
+) -> dict[str, Any]:
+	"""Schedule a status snapshot on the host UI thread and wait without blocking it.
+
+	Only call from a worker thread; dispatch must enqueue, never run inline.
+	A cancelled or timed-out queued callback must not read NVDA state.
+	"""
+	if type(timeoutSeconds) not in (float, int) or not 0 < timeoutSeconds <= _RESPONSE_TIMEOUT_SECONDS:
+		raise ValueError("Invalid callback timeout")
+	if cancelled is not None and not isinstance(cancelled, threading.Event):
+		raise ValueError("Invalid cancellation event")
+	if cancelled is not None and cancelled.is_set():
+		raise CancelledError("Local status callback cancelled")
+	completed = threading.Event()
+	expired = threading.Event()
+	result: list[dict[str, Any]] = []
+	errors: list[Exception] = []
+
+	def runOnMainThread() -> None:
+		if expired.is_set() or (cancelled is not None and cancelled.is_set()):
+			completed.set()
+			return
+		try:
+			result.append(sanitizeStatus(statusCallback()))
+		except Exception as exc:
+			errors.append(exc)
+		finally:
+			completed.set()
+
+	deadline = time.monotonic() + timeoutSeconds
+	try:
+		dispatch(runOnMainThread)
+		while not completed.is_set():
+			if cancelled is not None and cancelled.is_set():
+				raise CancelledError("Local status callback cancelled")
+			remaining = deadline - time.monotonic()
+			if remaining <= 0:
+				raise TimeoutError("Local status callback timed out")
+			completed.wait(min(remaining, 0.05))
+		if cancelled is not None and cancelled.is_set():
+			raise CancelledError("Local status callback cancelled")
+		if time.monotonic() > deadline:
+			raise TimeoutError("Local status callback timed out")
+		if errors:
+			raise errors[0]
+		return result[0]
+	finally:
+		expired.set()
+
+
 def serveOneStatus(
 	address: str,
 	authKey: bytes,
