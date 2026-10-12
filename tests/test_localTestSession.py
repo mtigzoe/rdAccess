@@ -59,7 +59,9 @@ class LocalStatusSessionTests(unittest.TestCase):
 	def test_credential_generation_failure_never_activates_session(self):
 		session = localTestSession.LocalStatusSession()
 		with (
-			mock.patch.object(localTestSession.secrets, "token_bytes", side_effect=OSError("entropy unavailable")),
+			mock.patch.object(
+				localTestSession.secrets, "token_bytes", side_effect=OSError("entropy unavailable")
+			),
 			self.assertRaises(OSError),
 		):
 			session.begin()
