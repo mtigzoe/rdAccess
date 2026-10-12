@@ -138,3 +138,14 @@ its separate consent secret before revoking the existing session. Failure to
 generate either secret leaves the previously authorized session intact.
 The live IPC listener remains disabled; no Windows services or NVDA sessions
 are altered by these changes.
+
+### Revocation-aware read-only status dispatch
+
+The inactive session controller now offers `readStatus(descriptor, callback)`.
+It checks the descriptor before calling the bounded status helper and checks
+it again before returning results. Stopping or rotating a session therefore
+prevents an already completed callback from returning status to an obsolete
+session. This is strictly an in-process helper: it does not start a named-pipe
+listener, grant Windows access, or connect NVDA Remote Access. The callback
+worker can still continue after a timeout; callers must provide only safe,
+thread-independent, read-only callbacks.
