@@ -358,11 +358,21 @@ class LocalStatusSessionTests(unittest.TestCase):
 		current = session.begin()
 		callback = mock.Mock()
 		with mock.patch(f"{PKG}.localTestIpc.serveOneStatus") as serve:
-			session.serveStatusOnce(current, callback)
+			session.serveStatusOnce(current, callback, dispatch=mock.Mock())
 		serve.assert_called_once()
 		self.assertEqual(serve.call_args.args[:2], (current.address, current.authKey))
-		self.assertEqual(serve.call_args.kwargs, {"cancelled": session.cancellationEvent(), "dispatch": None})
+		self.assertEqual(serve.call_args.kwargs, {"cancelled": session.cancellationEvent(), "dispatch": serve.call_args.kwargs["dispatch"]})
 		self.assertIs(serve.call_args.args[2](), callback.return_value)
+
+	def test_one_shot_requires_main_thread_dispatcher(self):
+		session = localTestSession.LocalStatusSession()
+		current = session.begin()
+		with (
+			mock.patch(f"{PKG}.localTestIpc.serveOneStatus") as serve,
+			self.assertRaises(ValueError),
+		):
+			session.serveStatusOnce(current, dict)
+		serve.assert_not_called()
 
 	def test_one_shot_dispatcher_passed_to_transport(self):
 		session = localTestSession.LocalStatusSession()
@@ -382,7 +392,7 @@ class LocalStatusSessionTests(unittest.TestCase):
 			captured.append(callback)
 
 		with mock.patch(f"{PKG}.localTestIpc.serveOneStatus", side_effect=capture_handler):
-			session.serveStatusOnce(current, status)
+			session.serveStatusOnce(current, status, dispatch=mock.Mock())
 		session.begin()
 		with self.assertRaises(PermissionError):
 			captured[0]()
@@ -399,7 +409,7 @@ class LocalStatusSessionTests(unittest.TestCase):
 			mock.patch(f"{PKG}.localTestIpc.serveOneStatus", side_effect=revoke_during_handler),
 			self.assertRaises(PermissionError),
 		):
-			session.serveStatusOnce(current, dict)
+			session.serveStatusOnce(current, dict, dispatch=mock.Mock())
 
 	def test_one_shot_dispatch_rejects_stale_descriptor_without_listener(self):
 		session = localTestSession.LocalStatusSession()
@@ -409,7 +419,7 @@ class LocalStatusSessionTests(unittest.TestCase):
 			mock.patch(f"{PKG}.localTestIpc.serveOneStatus") as serve,
 			self.assertRaises(PermissionError),
 		):
-			session.serveStatusOnce(stale, dict)
+			session.serveStatusOnce(stale, dict, dispatch=mock.Mock())
 		serve.assert_not_called()
 
 	def test_read_status_rejects_stale_descriptor_without_running_callback(self):
