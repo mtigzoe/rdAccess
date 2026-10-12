@@ -74,8 +74,15 @@ class LocalStatusSession:
 			try:
 				timer.start()
 			except Exception:
-				# Fail closed: consent must never remain active without expiry.
-				self._stopLocked()
+				# Fail closed even when an unusual Timer implementation raises.
+				# Keep the original startup failure rather than a cleanup error.
+				try:
+					self._stopLocked()
+				except Exception:
+					self._cancelled.set()
+					self._descriptor = None
+					self._expiryTimer = None
+					self._consent.revoke()
 				raise
 			return descriptor
 
