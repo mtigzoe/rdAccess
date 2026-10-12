@@ -13,6 +13,32 @@ spec.loader.exec_module(localTestIpc)
 
 
 class LocalIpcTests(unittest.TestCase):
+
+	@staticmethod
+	def valid_status():
+		return {
+			"schema_version": 1,
+			"bridge_attached": False,
+			"transport_connected": "unverified",
+			"remote_control_active": "unverified",
+			"semantic_braille_negotiated": False,
+			"temporary_message_supported": False,
+			"physical_braille": "unverified",
+		}
+
+	def test_status_sanitizer_rejects_unexpected_secrets(self):
+		for extra in ("key", "host", "focus_text", "relay_password"):
+			with self.subTest(extra=extra), self.assertRaises(ValueError):
+				localTestIpc.sanitizeStatus({**self.valid_status(), extra: "sensitive"})
+
+	def test_status_sanitizer_rejects_invented_braille_success(self):
+		with self.assertRaises(ValueError):
+			localTestIpc.sanitizeStatus({**self.valid_status(), "physical_braille": "passed"})
+
+	def test_status_sanitizer_rejects_invalid_types(self):
+		with self.assertRaises(ValueError):
+			localTestIpc.sanitizeStatus({**self.valid_status(), "bridge_attached": 1})
+
 	def test_endpoint_suffix_rejects_predictable_or_malformed_values(self):
 		for suffix in ("", "test", "A" * 32, "../" * 12, "g" * 32):
 			with self.subTest(suffix=suffix), self.assertRaises(ValueError):
@@ -75,10 +101,10 @@ class LocalIpcTests(unittest.TestCase):
 	def test_status_client_sends_only_allowlisted_request(self):
 		connection = mock.MagicMock()
 		connection.__enter__.return_value = connection
-		connection.recv_bytes.return_value = b'{"bridge_attached":false}'
+		connection.recv_bytes.return_value = localTestIpc.encodeJson(self.valid_status(), limit=4096)
 		with mock.patch.object(localTestIpc, "Client", return_value=connection) as client:
 			result = localTestIpc.requestStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32)
-		self.assertEqual(result, {"bridge_attached": False})
+		self.assertEqual(result, self.valid_status())
 		client.assert_called_once()
 		self.assertEqual(
 			json.loads(connection.send_bytes.call_args.args[0]),
