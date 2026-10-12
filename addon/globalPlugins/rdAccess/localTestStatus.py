@@ -6,6 +6,7 @@
 This module deliberately has no listener, file writer, connection command,
 or keyboard injection. A caller must already be executing inside NVDA.
 """
+
 from __future__ import annotations
 
 from typing import Any

@@ -1,4 +1,5 @@
 """Isolated status-model tests: no NVDA, GUI or Windows session required."""
+
 import importlib.util
 import types
 import unittest
