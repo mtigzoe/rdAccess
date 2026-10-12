@@ -12,8 +12,8 @@ from __future__ import annotations
 import secrets
 import threading
 from collections.abc import Callable
-from typing import Any
 from dataclasses import dataclass, field
+from typing import Any
 
 from .localTestRequest import LocalConsent
 
