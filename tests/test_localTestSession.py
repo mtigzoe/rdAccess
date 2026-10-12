@@ -5,6 +5,7 @@ import sys
 import threading
 import types
 import unittest
+from concurrent.futures import CancelledError
 from pathlib import Path
 from unittest import mock
 
@@ -219,7 +220,6 @@ class LocalStatusSessionTests(unittest.TestCase):
 	def test_read_status_normalizes_cancelled_wait_as_revoked_session(self):
 		session = localTestSession.LocalStatusSession()
 		current = session.begin()
-		from concurrent.futures import CancelledError
 
 		with (
 			mock.patch(
