@@ -713,12 +713,23 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		globalCommands = types.ModuleType("globalCommands")
 		globalCommands.commands = commands
 		with mock.patch.dict(sys.modules, {"globalCommands": globalCommands}):
-			localGesture = types.SimpleNamespace(script=commands.script_braille_routeTo)
-			self.assertTrue(self.bridge._handleSemanticBrailleGesture(localGesture))
-			self.assertEqual(self.client.leaderSession.forwarded, [])
-			remoteGesture = types.SimpleNamespace(script=object())
-			self.assertFalse(self.bridge._handleSemanticBrailleGesture(remoteGesture))
-			self.assertEqual(self.client.leaderSession.forwarded, [remoteGesture])
+			for selectRangeAvailable in (True, False):
+				with self.subTest(selectRangeAvailable=selectRangeAvailable):
+					if not selectRangeAvailable:
+						# NVDA 2026.2 lacks the newer range-selection command.
+						del commands.script_braille_selectRange
+					self.client.leaderSession.forwarded.clear()
+					for name in ("script_braille_routeTo", "script_braille_scrollForward"):
+						localGesture = types.SimpleNamespace(script=getattr(commands, name))
+						self.assertTrue(self.bridge._handleSemanticBrailleGesture(localGesture))
+					if selectRangeAvailable:
+						localGesture = types.SimpleNamespace(script=commands.script_braille_selectRange)
+						self.assertTrue(self.bridge._handleSemanticBrailleGesture(localGesture))
+					self.assertEqual(self.client.leaderSession.forwarded, [])
+					for script in (object(), None):
+						remoteGesture = types.SimpleNamespace(script=script)
+						self.assertFalse(self.bridge._handleSemanticBrailleGesture(remoteGesture))
+					self.assertEqual(len(self.client.leaderSession.forwarded), 2)
 
 	def test_terminate_restores_original_receiving_braille_method_and_state(self):
 		original = self.bridge._originalSetReceivingBraille

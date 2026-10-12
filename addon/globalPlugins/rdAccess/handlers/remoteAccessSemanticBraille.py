@@ -233,10 +233,13 @@ class RemoteAccessSemanticBrailleBridge:
 			commands.script_braille_scrollForward,
 			commands.script_braille_routeTo,
 			commands.script_braille_reportFormatting,
-			commands.script_braille_selectRange,
 			commands.script_braille_previousLine,
 			commands.script_braille_nextLine,
 		}
+		# Range selection is available only in newer NVDA versions.
+		selectRange = getattr(commands, "script_braille_selectRange", None)
+		if selectRange is not None:
+			localScripts.add(selectRange)
 		if getattr(gesture, "script", None) in localScripts:
 			return True
 		session = self._leaderSession()
