@@ -1,8 +1,13 @@
 """Isolated status-model tests: no NVDA, GUI or Windows session required."""
+import importlib.util
+from pathlib import Path
 import types
 import unittest
 
-from addon.globalPlugins.rdAccess import localTestStatus
+SOURCE = Path(__file__).resolve().parents[1] / "addon/globalPlugins/rdAccess/localTestStatus.py"
+spec = importlib.util.spec_from_file_location("localTestStatus", SOURCE)
+localTestStatus = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(localTestStatus)
 
 
 class StatusSnapshotTests(unittest.TestCase):
