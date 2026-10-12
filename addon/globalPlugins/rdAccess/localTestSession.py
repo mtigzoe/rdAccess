@@ -85,8 +85,11 @@ class LocalStatusSession:
 				self._stopLocked()
 
 	def _activeLocked(self) -> bool:
-		if self._descriptor is None or not self._consent.active():
-			self._cancelled.set()
+		if self._descriptor is None:
+			return False
+		if not self._consent.active():
+			# Drop expired credentials and stop the redundant expiry timer.
+			self._stopLocked()
 			return False
 		return not self._cancelled.is_set()
 
