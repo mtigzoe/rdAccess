@@ -30,42 +30,52 @@ class LocalStatusSession:
 		self._descriptor: LocalSessionDescriptor | None = None
 		self._cancelled = threading.Event()
 		self._cancelled.set()
+		self._lock = threading.RLock()
 
 	def begin(self, *, lifetimeSeconds: int = 300) -> LocalSessionDescriptor:
-		"""Explicit opt-in. Caller controls actual transport creation."""
-		self.stop()
+		"""Create a new opt-in session atomically; never open an IPC listener."""
 		from .localTestIpc import pipeAddress
 
-		# Prepare credentials before granting consent: allocation errors must not
-		# leave a half-activated session behind.
-		descriptor = LocalSessionDescriptor(
-			address=pipeAddress(secrets.token_hex(16)),
-			authKey=secrets.token_bytes(32),
-		)
-		self._consent.enable(lifetimeSeconds=lifetimeSeconds)
-		self._cancelled = threading.Event()
-		self._descriptor = descriptor
-		return descriptor
+		with self._lock:
+			self._stopLocked()
+			descriptor = LocalSessionDescriptor(
+				address=pipeAddress(secrets.token_hex(16)),
+				authKey=secrets.token_bytes(32),
+			)
+			self._consent.enable(lifetimeSeconds=lifetimeSeconds)
+			self._cancelled = threading.Event()
+			self._descriptor = descriptor
+			return descriptor
 
-	def active(self) -> bool:
+	def _activeLocked(self) -> bool:
 		if self._descriptor is None or not self._consent.active():
 			self._cancelled.set()
 			return False
 		return not self._cancelled.is_set()
 
-	def stop(self) -> None:
-		"""Revoke without contacting NVDA, starting a listener, or sending keys."""
+	def active(self) -> bool:
+		with self._lock:
+			return self._activeLocked()
+
+	def _stopLocked(self) -> None:
 		self._cancelled.set()
 		self._consent.revoke()
 		self._descriptor = None
 
+	def stop(self) -> None:
+		"""Revoke pending waits and credentials without starting a listener."""
+		with self._lock:
+			self._stopLocked()
+
 	def cancellationEvent(self) -> threading.Event:
-		"""Expose the current session's revocation signal to a trusted status waiter."""
-		if not self.active():
-			raise PermissionError("Local status session inactive")
-		return self._cancelled
+		"""Get the current session's cancellation signal, when still active."""
+		with self._lock:
+			if not self._activeLocked():
+				raise PermissionError("Local status session inactive")
+			return self._cancelled
 
 	def descriptor(self) -> LocalSessionDescriptor:
-		if not self.active() or self._descriptor is None:
-			raise PermissionError("Local status session inactive")
-		return self._descriptor
+		with self._lock:
+			if not self._activeLocked() or self._descriptor is None:
+				raise PermissionError("Local status session inactive")
+			return self._descriptor
