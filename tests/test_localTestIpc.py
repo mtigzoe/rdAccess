@@ -36,11 +36,13 @@ class LocalIpcTests(unittest.TestCase):
 			"\\\\.\\pipe\\linux-rdaccess-test-" + "g" * 32,
 			"",
 		):
-			with self.subTest(address=address):
-				with mock.patch.object(localTestIpc, "Client") as client:
-					with self.assertRaises(ValueError):
-						localTestIpc.requestStatus(address, b"k" * 32)
-					client.assert_not_called()
+			with (
+				self.subTest(address=address),
+				mock.patch.object(localTestIpc, "Client") as client,
+				self.assertRaises(ValueError),
+			):
+				localTestIpc.requestStatus(address, b"k" * 32)
+			client.assert_not_called()
 
 	def test_status_client_does_not_open_pipe_with_short_key(self):
 		with mock.patch.object(localTestIpc, "Client") as client, self.assertRaises(ValueError):
