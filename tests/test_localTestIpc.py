@@ -25,6 +25,19 @@ class LocalIpcTests(unittest.TestCase):
 			"physical_braille": "unverified",
 		}
 
+
+	def test_invalid_message_bounds_rejected(self):
+		for limit in (0, -1, True, 1.0):
+			with self.subTest(limit=limit), self.assertRaises(ValueError):
+				localTestIpc.encodeJson({}, limit=limit)
+			with self.subTest(limit=limit), self.assertRaises(ValueError):
+				localTestIpc.decodeJson(b"{}", limit=limit)
+
+	def test_detached_bridge_must_not_claim_negotiated_capabilities(self):
+		for capability in ("semantic_braille_negotiated", "temporary_message_supported"):
+			with self.subTest(capability=capability), self.assertRaises(ValueError):
+				localTestIpc.sanitizeStatus({**self.valid_status(), capability: True})
+
 	def test_status_sanitizer_rejects_unexpected_secrets(self):
 		for extra in ("key", "host", "focus_text", "relay_password"):
 			with self.subTest(extra=extra), self.assertRaises(ValueError):
