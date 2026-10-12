@@ -130,3 +130,11 @@ Session credential allocation now occurs before old credentials are revoked.
 If generating a replacement pipe identifier or auth key fails, the previously
 active, consented session remains valid and its cancellation event remains
 unset. This does not activate an IPC listener or alter Windows processes.
+
+### Consent token allocation failure
+
+Credential rotation now prepares both the new pipe authentication key and
+its separate consent secret before revoking the existing session. Failure to
+generate either secret leaves the previously authorized session intact.
+The live IPC listener remains disabled; no Windows services or NVDA sessions
+are altered by these changes.
