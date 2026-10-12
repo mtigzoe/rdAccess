@@ -1,6 +1,7 @@
 """Tests for inactive, bounded Windows local status IPC primitives."""
 
 import importlib.util
+from concurrent.futures import CancelledError
 import json
 import sys
 import threading
@@ -149,6 +150,38 @@ class LocalIpcTests(unittest.TestCase):
 			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback)
 		callback.assert_not_called()
 		connection.recv_bytes.assert_not_called()
+
+
+	def test_callback_wait_rejects_pre_cancelled_session(self):
+		cancelled = threading.Event()
+		cancelled.set()
+		callback = mock.Mock(return_value=self.valid_status())
+		with self.assertRaises(CancelledError):
+			localTestIpc.waitForStatus(callback, cancelled=cancelled)
+		callback.assert_not_called()
+
+	def test_callback_wait_cancels_while_worker_is_busy(self):
+		cancelled = threading.Event()
+		release = threading.Event()
+		started = threading.Event()
+
+		def blocked():
+			started.set()
+			release.wait(1)
+			return self.valid_status()
+
+		def trigger_cancel():
+			started.wait(1)
+			cancelled.set()
+
+		trigger = threading.Thread(target=trigger_cancel)
+		trigger.start()
+		try:
+			with self.assertRaises(CancelledError):
+				localTestIpc.waitForStatus(blocked, cancelled=cancelled)
+		finally:
+			release.set()
+			trigger.join(timeout=1)
 
 	def test_status_callback_timeout_returns_without_waiting_for_worker(self):
 		release = threading.Event()
