@@ -113,12 +113,18 @@ class LocalStatusSession:
 			return self._activeLocked()
 
 	def _stopLocked(self) -> None:
-		if self._expiryTimer is not None:
-			self._expiryTimer.cancel()
-			self._expiryTimer = None
+		"""Revoke credentials before touching any potentially failing timer."""
+		timer = self._expiryTimer
+		self._expiryTimer = None
 		self._cancelled.set()
 		self._consent.revoke()
 		self._descriptor = None
+		if timer is not None:
+			try:
+				timer.cancel()
+			except Exception:
+				# Timer cancellation must never restore or delay revocation.
+				pass
 
 	def stop(self) -> None:
 		"""Revoke pending waits and credentials without starting a listener."""
