@@ -44,7 +44,7 @@ def snapshot(bridge: Any | None) -> dict[str, Any]:
 		sending = getattr(client, "sendingKeys", None)
 		if type(sending) is bool and result["transport_connected"] is True:
 			result["remote_control_active"] = sending
-	if result["transport_connected"] is False:
+	if result["transport_connected"] is not True:
 		return result
 
 	# The legacy callback-manager backend cannot independently confirm that
