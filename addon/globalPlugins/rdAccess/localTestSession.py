@@ -130,6 +130,7 @@ class LocalStatusSession:
 			if not self._activeLocked() or self._descriptor is not descriptor:
 				raise PermissionError("Local status session inactive")
 			cancelled = self._cancelled
+
 		def authorizedCallback() -> dict[str, Any]:
 			with self._lock:
 				if not self._activeLocked() or self._descriptor is not descriptor:
