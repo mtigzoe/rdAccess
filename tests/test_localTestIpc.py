@@ -272,6 +272,14 @@ class LocalIpcTests(unittest.TestCase):
 			release.set()
 			trigger.join(timeout=1)
 
+	def test_finished_callback_past_deadline_is_not_returned(self):
+		clock = iter((100.0, 100.02))
+		with (
+			mock.patch.object(localTestIpc.time, "monotonic", side_effect=lambda: next(clock)),
+			self.assertRaises(TimeoutError),
+		):
+			localTestIpc.waitForStatus(self.valid_status, timeoutSeconds=0.01)
+
 	def test_status_callback_timeout_returns_without_waiting_for_worker(self):
 		release = threading.Event()
 		started = threading.Event()
