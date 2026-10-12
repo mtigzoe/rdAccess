@@ -216,6 +216,20 @@ class LocalStatusSessionTests(unittest.TestCase):
 		with self.assertRaises(ValueError):
 			session.readStatus(current, lambda: {"relay_key": "never expose"})
 
+	def test_read_status_normalizes_cancelled_wait_as_revoked_session(self):
+		session = localTestSession.LocalStatusSession()
+		current = session.begin()
+		from concurrent.futures import CancelledError
+
+		with (
+			mock.patch(
+				f"{PKG}.localTestIpc.waitForStatus",
+				side_effect=CancelledError("cancelled"),
+			),
+			self.assertRaises(PermissionError),
+		):
+			session.readStatus(current, lambda: {})
+
 	def test_read_status_rejects_stale_descriptor_without_running_callback(self):
 		session = localTestSession.LocalStatusSession()
 		stale = session.begin()
