@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import threading
 import sys
 import types
 import unittest
@@ -148,6 +149,32 @@ class LocalIpcTests(unittest.TestCase):
 			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback)
 		callback.assert_not_called()
 		connection.recv_bytes.assert_not_called()
+
+
+	def test_status_callback_timeout_returns_without_waiting_for_worker(self):
+		release = threading.Event()
+		started = threading.Event()
+
+		def blocked():
+			started.set()
+			release.wait(1)
+			return self.valid_status()
+
+		try:
+			with self.assertRaises(TimeoutError):
+				localTestIpc.waitForStatus(blocked, timeoutSeconds=0.01)
+			self.assertTrue(started.is_set())
+		finally:
+			release.set()
+
+	def test_status_callback_result_is_sanitized(self):
+		with self.assertRaises(ValueError):
+			localTestIpc.waitForStatus(lambda: {**self.valid_status(), "relay_password": "secret"})
+
+	def test_callback_timeout_is_bounded(self):
+		for duration in (0, -1, 6):
+			with self.subTest(duration=duration), self.assertRaises(ValueError):
+				localTestIpc.waitForStatus(self.valid_status, timeoutSeconds=duration)
 
 	def test_client_response_timeout_closes_connection(self):
 		connection = mock.MagicMock()
