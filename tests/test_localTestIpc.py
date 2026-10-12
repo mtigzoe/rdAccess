@@ -118,6 +118,23 @@ class LocalIpcTests(unittest.TestCase):
 			)
 		listener.assert_not_called()
 
+	def test_pre_cancelled_status_never_opens_listener(self):
+		cancelled = threading.Event()
+		cancelled.set()
+		callback = mock.Mock()
+		with (
+			mock.patch.object(localTestIpc, "Listener") as listener,
+			self.assertRaises(CancelledError),
+		):
+			localTestIpc.serveOneStatus(
+				localTestIpc.pipeAddress("a" * 32),
+				b"k" * 32,
+				callback,
+				cancelled=cancelled,
+			)
+		listener.assert_not_called()
+		callback.assert_not_called()
+
 	def test_server_pre_cancelled_session_does_not_schedule_callback(self):
 		cancelled = threading.Event()
 		cancelled.set()
