@@ -247,7 +247,7 @@ class LocalStatusSessionTests(unittest.TestCase):
 		session = localTestSession.LocalStatusSession()
 		current = session.begin()
 
-		def revoke_during_handler():
+		def revoke_during_handler(*_args, **_kwargs):
 			session.stop()
 
 		with (
