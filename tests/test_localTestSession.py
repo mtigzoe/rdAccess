@@ -77,6 +77,28 @@ class LocalStatusSessionTests(unittest.TestCase):
 		self.assertFalse(session.cancellationEvent().is_set())
 		self.assertIsNot(prior, session.cancellationEvent())
 
+	def test_expiry_timer_cancels_idle_session_without_status_poll(self):
+		session = localTestSession.LocalStatusSession()
+		with mock.patch.object(localTestSession.threading, "Timer") as timer:
+			current = session.begin(lifetimeSeconds=30)
+			cancelled = session.cancellationEvent()
+			timer.assert_called_once()
+			self.assertEqual(timer.call_args.args[0], 30)
+			self.assertIs(timer.call_args.args[2][0], current)
+			timer.call_args.args[1](current)
+		self.assertTrue(cancelled.is_set())
+		self.assertFalse(session.active())
+
+	def test_old_expiry_timer_cannot_cancel_rotated_session(self):
+		session = localTestSession.LocalStatusSession()
+		with mock.patch.object(localTestSession.threading, "Timer") as timer:
+			old = session.begin()
+			old_expire = timer.call_args.args[1]
+			new = session.begin()
+			old_expire(old)
+			self.assertTrue(session.isCurrent(new))
+			session.stop()
+
 	def test_expiration_signals_pending_status_wait(self):
 		session = localTestSession.LocalStatusSession()
 		with mock.patch(f"{PKG}.localTestRequest.time.monotonic", return_value=100):
