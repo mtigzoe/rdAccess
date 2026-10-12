@@ -173,3 +173,12 @@ in-memory pipe address, authentication key and cancellation event to the
 one-shot status primitive. Stale descriptors are rejected before dispatch.
 This method is **not connected** to the NVDA plugin and must not be activated
 until the blocking accept and same-user ACL requirements have been addressed.
+
+### Active consent-expiry cancellation
+
+A daemon expiry timer now revokes an idle session when its consent lifetime
+elapses, without requiring a client to poll status. Stopping or rotating the
+session cancels the prior timer, and an old timer callback cannot revoke a
+replacement session. This does not interrupt the underlying blocking Windows
+named-pipe `accept()`; the transport is still inactive pending secure ACLs and
+cancellable listener integration.
