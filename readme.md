@@ -39,7 +39,7 @@ Run these commands in PowerShell **from the Windows
 `mtigzoe/linux-rdaccess` repository**, not this `rdAccess` repository:
 
 ```powershell
-cd C:\Users\Miriam\Personal_Coding\rdp\linux-rdaccess
+cd C:\path\to\linux-rdaccess
 python .\linux_rdaccess_test_session.py doctor
 python .\linux_rdaccess_test_session.py status
 python .\linux_rdaccess_test_session.py start-all
