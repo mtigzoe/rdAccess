@@ -109,6 +109,40 @@ class LocalIpcTests(unittest.TestCase):
 			)
 		listener.assert_not_called()
 
+
+	def test_server_never_calls_status_callback_for_unsupported_action(self):
+		connection = mock.MagicMock()
+		connection.__enter__.return_value = connection
+		connection.poll.return_value = True
+		connection.recv_bytes.return_value = b'{"version":1,"action":"connect"}'
+		listener = mock.MagicMock()
+		listener.__enter__.return_value = listener
+		listener.accept.return_value = connection
+		callback = mock.Mock(return_value=self.valid_status())
+		with (
+			mock.patch.object(localTestIpc, "Listener", return_value=listener),
+			self.assertRaises(ValueError),
+		):
+			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback)
+		callback.assert_not_called()
+		connection.send_bytes.assert_not_called()
+
+	def test_server_does_not_invoke_callback_after_request_timeout(self):
+		connection = mock.MagicMock()
+		connection.__enter__.return_value = connection
+		connection.poll.return_value = False
+		listener = mock.MagicMock()
+		listener.__enter__.return_value = listener
+		listener.accept.return_value = connection
+		callback = mock.Mock(return_value=self.valid_status())
+		with (
+			mock.patch.object(localTestIpc, "Listener", return_value=listener),
+			self.assertRaises(TimeoutError),
+		):
+			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback)
+		callback.assert_not_called()
+		connection.recv_bytes.assert_not_called()
+
 	def test_client_response_timeout_closes_connection(self):
 		connection = mock.MagicMock()
 		connection.__enter__.return_value = connection
