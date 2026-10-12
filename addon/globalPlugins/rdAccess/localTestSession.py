@@ -113,6 +113,28 @@ class LocalStatusSession:
 				raise PermissionError("Local status session revoked")
 		return result
 
+	def serveStatusOnce(
+		self,
+		descriptor: LocalSessionDescriptor,
+		callback: Callable[[], dict[str, Any]],
+	) -> None:
+		"""Bind an inactive one-shot transport to this exact consent session.
+
+		This is a blocking primitive for future integration, not a listener
+		startup path. Callers must first enforce same-user Windows pipe ACLs
+		and provide a cancellable accept implementation.
+		"""
+		from .localTestIpc import serveOneStatus
+
+		with self._lock:
+			if not self._activeLocked() or self._descriptor is not descriptor:
+				raise PermissionError("Local status session inactive")
+			cancelled = self._cancelled
+		try:
+			serveOneStatus(descriptor.address, descriptor.authKey, callback, cancelled=cancelled)
+		except CancelledError as exc:
+			raise PermissionError("Local status session revoked") from exc
+
 	def cancellationEvent(self) -> threading.Event:
 		"""Get the current session's cancellation signal, when still active."""
 		with self._lock:
