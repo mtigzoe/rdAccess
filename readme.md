@@ -20,6 +20,57 @@ This enables a user experience where managing a remote system feels as seamless 
 * Remote desktop instantly available after NVDA start
 * Ability to control specific synthesizer and braille display settings without leaving the remote session
 
+## Linux Mint NVDA Remote Access test sessions
+
+The optional Linux test-session workflow connects Windows NVDA Remote Access to the
+`mtigzoe/linux-rdaccess` bridge. This is a development and accessibility-testing
+workflow; a successful connection does not by itself verify speech or physical
+braille output.
+
+**Prerequisites:** Install an appropriate build of this add-on, configure NVDA's
+built-in Remote Access as **Control another computer** with saved relay settings,
+and configure Linux SSH and the Orca bridge. In NVDA's **Tools** menu, choose
+**Authorize Linux test session...**, optionally allow a connection using the
+saved relay settings, then authorize a **five-minute** session. Connection
+authorization is optional and off by default. Do not share the session's
+encrypted discovery file.
+
+Run these commands in PowerShell **from the Windows
+`mtigzoe/linux-rdaccess` repository**, not this `rdAccess` repository:
+
+```powershell
+cd C:\path\to\linux-rdaccess
+python .\linux_rdaccess_test_session.py doctor
+python .\linux_rdaccess_test_session.py status
+python .\linux_rdaccess_test_session.py start-all
+python .\linux_rdaccess_test_session.py nvda-status
+```
+
+- `doctor` reports diagnostic limitations and Linux readiness.
+- `status` checks the Linux-side configuration and SSH state.
+- `start-all` checks Linux readiness and requests an authenticated Windows
+  connection using the saved NVDA Remote Access profile. It does **not**
+  restart NVDA or Orca or send keyboard input.
+- `nvda-status` queries the authorized Windows NVDA status endpoint.
+  Transport connection, remote keyboard control, semantic braille, and
+  physical braille are distinct results; physical braille must be checked
+  on the actual display.
+
+To cancel only a connection created by the authorized session, run:
+
+```powershell
+python .\linux_rdaccess_test_session.py cancel
+```
+
+To revoke authorization entirely, use NVDA's Tools menu. Consent expires
+automatically after five minutes, and its local endpoint and encrypted
+discovery file are cleaned up. An already existing Remote Access connection
+should not be disconnected by the session cancellation action.
+
+For details, safety boundaries, and live acceptance steps, see
+[Windows test-session instructions in linux-rdaccess](https://github.com/mtigzoe/linux-rdaccess/blob/main/docs/windows-test-session-stage2.md)
+and [this add-on's Stage 2 design](docs/ai-test-session-stage2.md).
+
 ## Changelog
 
 ### Version 2.0.3
