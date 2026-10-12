@@ -7,6 +7,7 @@ from unittest import mock
 
 import braille
 import config
+import queueHandler
 
 from tests.test_remoteAccessSemanticBraille import FakeBrailleHandler, SemanticBrailleBridgeTestCase
 
@@ -140,6 +141,96 @@ class SemanticBrailleContextTests(SemanticBrailleBridgeTestCase):
 		self.sendFocus()
 		self.brailleHandler.handleGainFocus(self.api.focusObject)
 		self.assertIs(self.brailleHandler.mainBuffer.regions[0].obj, self.windowsAncestor)
+
+	def test_same_remote_focus_rebuilds_after_windows_replaces_buffer(self):
+		self.negotiate()
+		self.sendFocus()
+		self.brailleHandler.handleGainFocus(self.api.focusObject)
+		self.sendFocus()
+		self.assertEqual(
+			[region.obj.name for region in self.brailleHandler.mainBuffer.regions],
+			["Settings", "Apply changes"],
+		)
+
+	def test_cached_remote_focus_replays_after_windows_replaces_buffer(self):
+		self.negotiate()
+		self.sendFocus()
+		self.brailleHandler.handleGainFocus(self.api.focusObject)
+		self.bridge._replayFocusOnMainThread(self.bridge._session)
+		self.assertEqual(
+			[region.obj.name for region in self.brailleHandler.mainBuffer.regions],
+			["Settings", "Apply changes"],
+		)
+
+	def _panGesture(self):
+		class Commands:
+			def __init__(self):
+				self.scripts = {}
+
+			def __getattr__(self, name):
+				return self.scripts.setdefault(name, object())
+
+		commands = Commands()
+		module = types.ModuleType("globalCommands")
+		module.commands = commands
+		patcher = mock.patch.dict("sys.modules", {"globalCommands": module})
+		patcher.start()
+		self.addCleanup(patcher.stop)
+		return types.SimpleNamespace(script=commands.script_braille_scrollBack)
+
+	def test_pan_queues_remote_recovery_before_core_script(self):
+		self.negotiate()
+		self.sendFocus()
+		self.brailleHandler.handleGainFocus(self.api.focusObject)
+		self.assertTrue(self.bridge._handleSemanticBrailleGesture(self._panGesture()))
+		# executeGesture queues its script after the decider returns.
+		observed = []
+		queueHandler.queueFunction(
+			queueHandler.eventQueue,
+			lambda: observed.append(self.brailleHandler.mainBuffer.regions[-1].obj.name),
+		)
+		queueHandler.pumpAll()
+		self.assertEqual(observed, ["Apply changes"])
+
+	def test_queued_pan_recovery_expires_after_control_generation_change(self):
+		self.negotiate()
+		self.sendFocus()
+		self.brailleHandler.handleGainFocus(self.api.focusObject)
+		self.bridge._handleSemanticBrailleGesture(self._panGesture())
+		self.assertTrue(queueHandler.queuedFunctions)
+		self.bridge._controlGeneration += 1
+		queueHandler.pumpAll()
+		self.assertIs(self.brailleHandler.mainBuffer.regions[-1].obj, self.api.focusObject)
+
+	def test_queued_pan_recovery_does_not_overwrite_local_control(self):
+		self.negotiate()
+		self.sendFocus()
+		self.brailleHandler.handleGainFocus(self.api.focusObject)
+		self.bridge._handleSemanticBrailleGesture(self._panGesture())
+		self.bridge._client = types.SimpleNamespace(leaderTransport=self.transport, sendingKeys=False)
+		queueHandler.pumpAll()
+		self.assertIs(self.brailleHandler.mainBuffer.regions[-1].obj, self.api.focusObject)
+
+	def test_focus_diagnostics_are_bounded_and_contain_only_status(self):
+		self.brailleHandler.enabled = True
+		self.brailleHandler.getTether = lambda: "focus"
+		with mock.patch.object(self.module, "log") as logger:
+			self.negotiate()
+			self.sendFocus(text="Private document text", caret=1)
+			self.sendFocus(text="Private document text", caret=2)
+		self.assertEqual(
+			logger.info.call_args_list,
+			[
+				mock.call("Semantic braille focus snapshot accepted"),
+				mock.call(
+					"Semantic braille presentation state: remote focus present=%s, "
+					"enabled=%s, focus tether=%s",
+					True,
+					True,
+					True,
+				),
+			],
+		)
 
 	def test_unchanged_linux_context_keeps_initial_window_at_new_focus(self):
 		self.negotiate()
