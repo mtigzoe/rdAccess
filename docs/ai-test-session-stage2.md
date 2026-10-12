@@ -87,3 +87,15 @@ event. An already-revoked request does not start a callback, and a pending
 wait can return early when the event is set. **Cancellation does not kill the
 status callback worker or close a blocked named-pipe `accept()` call.** This
 is still a component-level primitive, not an activated NVDA session listener.
+
+### Session-to-waiter revocation signal
+
+`LocalStatusSession.cancellationEvent()` now returns an event associated with
+one active consent session. Passing this event to the inactive
+`waitForStatus(..., cancelled=event)` primitive allows `stop()` or credential
+rotation to interrupt a status *wait*. Once replaced, an old session's event
+stays signalled and does not affect the newly created session. Expiration also
+signals the event when `active()`, `descriptor()`, or `cancellationEvent()`
+checks discover expiry; no background expiration scheduler is installed.
+This still **cannot interrupt a blocked named-pipe accept or stop a callback
+thread**, and it does not enable a live listener.
