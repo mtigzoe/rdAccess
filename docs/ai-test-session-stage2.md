@@ -81,6 +81,12 @@ cleans up failed or disconnected test-owned sessions. Revocation closes only
 the captured owned transport, on a worker, then rechecks identity before
 calling the core leader-disconnect API on the main thread. Socket shutdown
 unblocks core's queue drain. It never disconnects a replacement user session.
+Cancellation detaches the owned transport's core connection/certificate/closing
+callbacks. Core's decorated closing-state implementation runs immediately on
+the main thread while the owned session is still current. A daemon cleanup
+worker retains that old session until its original connector exits and closes
+any socket allocated after cancellation. Windows DNS cannot be forcibly killed;
+that wait stays off the GUI thread and no NVDA shutdown path joins it.
 Upstream transport construction logs its channel; a retained logger filter is
 installed before connect to redact the saved relay key in delayed log records.
 

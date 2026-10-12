@@ -186,7 +186,7 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 		assert gui.mainFrame is not None
 		toolsMenu = gui.mainFrame.sysTrayIcon.toolsMenu
 		# Translators: NVDA Tools command to explicitly authorize a temporary local test session.
-		self._authorizeTestMenu = toolsMenu.Append(wx.ID_ANY, _("Authorize Linux test session…"))
+		self._authorizeTestMenu = toolsMenu.Append(wx.ID_ANY, _("Authorize Linux test session..."))
 		# Translators: NVDA Tools command to revoke test-session permissions immediately.
 		self._revokeTestMenu = toolsMenu.Append(wx.ID_ANY, _("Revoke Linux test session"))
 		gui.mainFrame.sysTrayIcon.Bind(wx.EVT_MENU, self._showLocalTestAuthorization, self._authorizeTestMenu)

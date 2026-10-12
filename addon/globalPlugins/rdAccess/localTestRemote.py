@@ -7,6 +7,7 @@ implementations fail closed. Saved relay settings never leave this module.
 from __future__ import annotations
 
 import importlib
+import inspect
 import logging
 import socket
 import threading
@@ -134,13 +135,47 @@ class RemoteConnection:
 			# identity so a user's replacement connection is never disconnected.
 			import wx
 
+			transport = owned.transport
+			closingHandler = getattr(self.client, "onDisconnectingAsLeader", None)
+			if closingHandler is not None:
+				# Core decorates this state cleanup with alwaysCallAfter. Run its
+				# wrapped implementation on the main thread while identity is
+				# still current, before any replacement can appear. Leaving it
+				# queued during a slow DNS cancellation can mutate a new session.
+				implementation = inspect.unwrap(closingHandler)
+				if implementation is closingHandler:
+					closingHandler()
+				else:
+					implementation(self.client)
+			connector = getattr(transport, "reconnectorThread", None)
+			if connector is not None:
+				connector.running = False
+			# Core can finish DNS/socket allocation after close() returns.
+			# Detach future connection/certificate callbacks before cancelling;
+			# retain the owned client session until that connector has exited.
+			for eventName, handlerName in (
+				("transportConnected", "onConnectedAsLeader"),
+				("transportConnectionFailed", "onConnectAsLeaderFailed"),
+				("transportCertificateAuthenticationFailed", "onLeaderCertificateFailed"),
+				("transportClosing", "onDisconnectingAsLeader"),
+				("transportDisconnected", "onDisconnectedAsLeader"),
+			):
+				event = getattr(transport, eventName, None)
+				handler = getattr(self.client, handlerName, None)
+				if event is not None and handler is not None:
+					event.unregister(handler)
+
 			def closeTransport() -> None:
-				transport = owned.transport
 				try:
-					connection = getattr(transport, "serverSock", None)
-					if connection is not None:
-						with suppress(OSError):
-							connection.shutdown(socket.SHUT_RDWR)
+					self._shutdownSocket(transport)
+					transport.close()
+					while connector is not None and connector.is_alive():
+						# A cancellation during DNS cannot forcibly kill that core
+						# worker. Close any late socket and quarantine the old
+						# session until it exits. No GUI/shutdown path joins here.
+						self._shutdownSocket(transport)
+						connector.join(0.05)
+					self._shutdownSocket(transport)
 					transport.close()
 				finally:
 					wx.CallAfter(finish)
@@ -151,6 +186,15 @@ class RemoteConnection:
 
 			threading.Thread(target=closeTransport, name="rdAccessRemoteCleanup", daemon=True).start()
 		return "cancelled"
+
+	@staticmethod
+	def _shutdownSocket(transport: Any) -> None:
+		connection = getattr(transport, "serverSock", None)
+		if connection is not None:
+			with suppress(OSError):
+				connection.shutdown(socket.SHUT_RDWR)
+			with suppress(OSError):
+				connection.close()
 
 
 class _RelaySecretFilter(logging.Filter):

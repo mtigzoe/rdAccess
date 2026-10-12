@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import importlib
 import logging
 import queue
@@ -86,6 +87,59 @@ class RemoteConnectionTests(unittest.TestCase):
 		self.finishCleanup()
 		self.assertIs(self.client.leaderSession, replacement)
 		self.client.disconnectAsLeader.assert_not_called()
+
+	def test_cancel_during_dns_closes_late_socket_without_blocking_main_thread(self):
+		self.remote.connect()
+		transport = self.client.leaderTransport
+		releaseDns, socketClosed = threading.Event(), threading.Event()
+		socket = mock.Mock()
+		socket.close.side_effect = socketClosed.set
+
+		def finishDns():
+			releaseDns.wait(2)
+			transport.serverSock = socket
+			socketClosed.wait(2)
+
+		connector = threading.Thread(target=finishDns)
+		transport.reconnectorThread = connector
+		transport.transportConnected = mock.Mock()
+		self.client.onConnectedAsLeader = mock.Mock()
+		connector.start()
+		try:
+			self.assertEqual(self.remote.cancel(), "cancelled")
+			self.assertFalse(releaseDns.is_set())
+			self.assertIsNotNone(self.client.leaderSession)
+			transport.transportConnected.unregister.assert_called_once_with(self.client.onConnectedAsLeader)
+			releaseDns.set()
+			self.finishCleanup()
+			self.assertTrue(socketClosed.is_set())
+			self.client.disconnectAsLeader.assert_called_once()
+		finally:
+			releaseDns.set()
+			socketClosed.set()
+			connector.join(2)
+
+	def test_closing_state_cleanup_runs_before_replacement_and_is_detached(self):
+		self.remote.connect()
+		transport = self.client.leaderTransport
+		transport.transportClosing = mock.Mock()
+		calls = []
+
+		def cleanup(client):
+			calls.append(client.leaderSession)
+
+		@functools.wraps(cleanup)
+		def callAfter(client):
+			self.tasks.put(lambda: cleanup(client))
+
+		self.client.onDisconnectingAsLeader = types.MethodType(callAfter, self.client)
+		owned = self.client.leaderSession
+		self.remote.cancel()
+		self.assertEqual(calls, [owned])
+		self.client.leaderSession = object()
+		self.finishCleanup()
+		self.assertEqual(calls, [owned])
+		transport.transportClosing.unregister.assert_called_once_with(self.client.onDisconnectingAsLeader)
 
 	def test_disconnect_and_initial_connection_timeout_cancel_owned_reconnector(self):
 		self.remote.connect()
