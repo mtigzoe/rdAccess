@@ -17,6 +17,8 @@ from concurrent.futures import CancelledError
 from multiprocessing.connection import Client, Listener
 from typing import Any
 
+from .localTestRequest import validateRequest
+
 _MAX_REQUEST = 1024
 _MAX_RESPONSE = 4096
 _RESPONSE_TIMEOUT_SECONDS = 5.0
@@ -165,8 +167,6 @@ def serveOneStatus(
 	integration must provide same-user access restrictions, timeouts, lifecycle
 	cleanup and marshal the callback to the NVDA main thread.
 	"""
-	from .localTestRequest import validateRequest
-
 	if type(authKey) is not bytes or len(authKey) < 32:
 		raise ValueError("Invalid authentication key")
 	validatePipeAddress(address)
