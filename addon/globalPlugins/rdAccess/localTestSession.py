@@ -130,8 +130,18 @@ class LocalStatusSession:
 			if not self._activeLocked() or self._descriptor is not descriptor:
 				raise PermissionError("Local status session inactive")
 			cancelled = self._cancelled
+		def authorizedCallback() -> dict[str, Any]:
+			with self._lock:
+				if not self._activeLocked() or self._descriptor is not descriptor:
+					raise PermissionError("Local status session revoked")
+			result = callback()
+			with self._lock:
+				if not self._activeLocked() or self._descriptor is not descriptor:
+					raise PermissionError("Local status session revoked")
+			return result
+
 		try:
-			serveOneStatus(descriptor.address, descriptor.authKey, callback, cancelled=cancelled)
+			serveOneStatus(descriptor.address, descriptor.authKey, authorizedCallback, cancelled=cancelled)
 		except CancelledError as exc:
 			raise PermissionError("Local status session revoked") from exc
 		with self._lock:
