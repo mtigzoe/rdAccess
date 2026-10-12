@@ -2,8 +2,8 @@
 
 import importlib.util
 import json
-import threading
 import sys
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -149,7 +149,6 @@ class LocalIpcTests(unittest.TestCase):
 			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback)
 		callback.assert_not_called()
 		connection.recv_bytes.assert_not_called()
-
 
 	def test_status_callback_timeout_returns_without_waiting_for_worker(self):
 		release = threading.Event()

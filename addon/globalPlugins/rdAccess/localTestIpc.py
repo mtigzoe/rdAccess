@@ -10,9 +10,9 @@ one-shot server from trusted NVDA code and supply an ephemeral auth key.
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
 from multiprocessing.connection import Client, Listener
-import threading
 from typing import Any
 
 _MAX_REQUEST = 1024
