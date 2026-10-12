@@ -89,6 +89,24 @@ class LocalStatusSessionTests(unittest.TestCase):
 		self.assertTrue(cancelled.is_set())
 		self.assertFalse(session.active())
 
+	def test_timer_creation_failure_preserves_existing_consent(self):
+		session = localTestSession.LocalStatusSession()
+		first = session.begin()
+		cancelled = session.cancellationEvent()
+		with (
+			mock.patch.object(
+				localTestSession.threading,
+				"Timer",
+				side_effect=RuntimeError("timer unavailable"),
+			),
+			self.assertRaises(RuntimeError),
+		):
+			session.begin()
+		self.assertTrue(session.isCurrent(first))
+		self.assertFalse(cancelled.is_set())
+		self.assertIs(session.descriptor(), first)
+		session.stop()
+
 	def test_timer_start_failure_revokes_new_consent(self):
 		session = localTestSession.LocalStatusSession()
 		with mock.patch.object(localTestSession.threading, "Timer") as timer:
