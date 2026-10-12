@@ -28,6 +28,20 @@ class LocalIpcTests(unittest.TestCase):
 		with self.assertRaises(ValueError):
 			localTestIpc.encodeJson({"text": "x" * 2000}, limit=1024)
 
+
+	def test_rejects_unexpected_or_remote_pipe_addresses_before_client_call(self):
+		for address in (
+			"\\\\remote\\pipe\\linux-rdaccess-test-" + "a" * 32,
+			"\\\\.\\pipe\\other-" + "a" * 32,
+			"\\\\.\\pipe\\linux-rdaccess-test-" + "g" * 32,
+			"",
+		):
+			with self.subTest(address=address):
+				with mock.patch.object(localTestIpc, "Client") as client:
+					with self.assertRaises(ValueError):
+						localTestIpc.requestStatus(address, b"k" * 32)
+					client.assert_not_called()
+
 	def test_status_client_does_not_open_pipe_with_short_key(self):
 		with mock.patch.object(localTestIpc, "Client") as client, self.assertRaises(ValueError):
 			localTestIpc.requestStatus(localTestIpc.pipeAddress("a" * 32), b"short")
