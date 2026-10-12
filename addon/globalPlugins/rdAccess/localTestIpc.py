@@ -232,6 +232,8 @@ def serveOneStatus(
 		raise ValueError("Invalid cancellation event")
 	if cancelled is not None and cancelled.is_set():
 		raise CancelledError("Local status session revoked")
+	if dispatch is None:
+		raise ValueError("UI-thread dispatcher required")
 	# The multiprocessing listener's accept() is blocking and cannot be
 	# interrupted by the consent event. Do not activate this transport until
 	# the caller can terminate pending accepts and enforce same-user ACLs.
