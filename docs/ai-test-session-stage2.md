@@ -68,3 +68,14 @@ These `poll()` checks **do not** bound `Listener.accept()`, initial client
 pipe connection, or a slow NVDA status callback. The listener must remain
 disabled until a cancellable lifecycle and Windows same-user pipe ACL have
 been implemented and tested; these receive timeouts alone are insufficient.
+
+### Status callback timeout limitation
+
+A read-only, thread-safe status callback can now be awaited for at most five
+seconds. The IPC request fails on timeout, but the daemon callback thread
+**is not cancelled** and might continue running afterward. This helper is
+**not safe for NVDA APIs that require the main event thread**, and it must
+not be used for keyboard actions or connecting Remote Access. A proper NVDA
+main-thread dispatcher with lifecycle cancellation is still required before
+live activation. Listener acceptance and Windows pipe ACL requirements are
+also unresolved.
