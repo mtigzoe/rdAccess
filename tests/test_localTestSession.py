@@ -28,6 +28,18 @@ localTestSession = load("localTestSession")
 
 
 class LocalStatusSessionTests(unittest.TestCase):
+	def test_timer_cancel_failure_cannot_prevent_stop_revocation(self):
+		session = localTestSession.LocalStatusSession()
+		current = session.begin()
+		cancelled = session.cancellationEvent()
+		with mock.patch.object(session._expiryTimer, "cancel", side_effect=RuntimeError("cancel failure")):
+			session.stop()
+		self.assertTrue(cancelled.is_set())
+		self.assertFalse(session.active())
+		self.assertFalse(session.isCurrent(current))
+		with self.assertRaises(PermissionError):
+			session.descriptor()
+
 	def test_context_exit_revokes_session_and_cancels_timer(self):
 		with localTestSession.LocalStatusSession() as session:
 			current = session.begin()
