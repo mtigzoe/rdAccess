@@ -195,7 +195,7 @@ class LocalIpcTests(unittest.TestCase):
 				b"k" * 32,
 				revoke,
 				cancelled=cancelled,
-				dispatch=lambda task: task(),
+				dispatch=lambda task: threading.Thread(target=task, daemon=True).start(),
 			)
 		connection.send_bytes.assert_not_called()
 
@@ -211,6 +211,12 @@ class LocalIpcTests(unittest.TestCase):
 		self.assertEqual(status, self.valid_status())
 		callback.assert_called_once()
 		self.assertEqual(len(queue), 1)
+
+	def test_inline_dispatch_is_rejected_without_reading_status(self):
+		callback = mock.Mock(return_value=self.valid_status())
+		with self.assertRaisesRegex(RuntimeError, "requesting thread"):
+			localTestIpc.waitForMainThreadStatus(callback, lambda task: task())
+		callback.assert_not_called()
 
 	def test_expired_main_thread_dispatch_does_not_read_status(self):
 		pending = []
@@ -294,7 +300,7 @@ class LocalIpcTests(unittest.TestCase):
 				localTestIpc.pipeAddress("a" * 32),
 				b"k" * 32,
 				callback,
-				dispatch=lambda task: task(),
+				dispatch=lambda task: threading.Thread(target=task, daemon=True).start(),
 			)
 		callback.assert_not_called()
 		connection.send_bytes.assert_not_called()
@@ -315,7 +321,7 @@ class LocalIpcTests(unittest.TestCase):
 				localTestIpc.pipeAddress("a" * 32),
 				b"k" * 32,
 				callback,
-				dispatch=lambda task: task(),
+				dispatch=lambda task: threading.Thread(target=task, daemon=True).start(),
 			)
 		callback.assert_not_called()
 		connection.recv_bytes.assert_not_called()
