@@ -10,6 +10,7 @@ from unittest import mock
 
 import braille
 import queueHandler
+from extensionPoints import Action
 
 from tests.test_remoteA11yHandler import (
 	HostObject,
@@ -46,6 +47,7 @@ class FakeBrailleHandler:
 		self.focused = []
 		self.updated = []
 		self.caret = []
+		self.messages = []
 		self.mainBuffer = types.SimpleNamespace(regions=[])
 
 	def handleGainFocus(self, obj):
@@ -57,6 +59,9 @@ class FakeBrailleHandler:
 
 	def handleCaretMove(self, obj):
 		self.caret.append(obj)
+
+	def message(self, text):
+		self.messages.append(text)
 
 
 def load_bridge_module():
@@ -151,7 +156,7 @@ class SemanticBrailleBridgeTests(unittest.TestCase):
 		self.transport.callback_manager.callbacks["msg_lrd_a11y_hello"](version=1)
 		self.assertEqual(
 			self.transport.sent,
-			[{"type": "lrd_a11y_capability", "version": 1, "presentation": "nvda"}],
+			[{"type": "lrd_a11y_capability", "version": 1, "presentation": "nvda", "message_version": 1}],
 		)
 
 	def sendFocus(self, **kwargs):
@@ -233,6 +238,46 @@ class SemanticBrailleBridgeTests(unittest.TestCase):
 			},
 		)
 
+	def test_temporary_message_requires_negotiation_and_preserves_focus(self):
+		callback = self.transport.callback_manager.callbacks["msg_lrd_a11y_message"]
+		callback(version=1, text="Focus mode")
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.messages, [])
+		self.negotiate()
+		self.sendFocus()
+		focused = self.brailleHandler.mainBuffer.regions[0].obj
+		callback(version=1, text="Focus mode")
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.messages, ["Focus mode"])
+		self.assertIs(self.brailleHandler.mainBuffer.regions[0].obj, focused)
+		self.assertEqual(len(self.brailleHandler.focused), 1)
+
+	def test_invalid_and_sanitized_message(self):
+		self.negotiate()
+		callback = self.transport.callback_manager.callbacks["msg_lrd_a11y_message"]
+		for version, value in ((True, "bad"), (2, "bad"), (1, None), (1, 4), (1, " \t ")):
+			callback(version=version, text=value)
+		callback(version=1, text="  Caps\x00 Lock\n\u202e on ")
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.messages, ["Caps Lock on"])
+
+	def test_queued_message_dropped_on_fallback_and_reconnect(self):
+		self.negotiate()
+		callback = self.transport.callback_manager.callbacks["msg_lrd_a11y_message"]
+		callback(version=1, text="Old message")
+		self.transport.callback_manager.callbacks["msg_lrd_a11y_fallback"](version=1)
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.messages, [])
+		self.transport.callback_manager.callbacks["msg_lrd_a11y_hello"](version=1)
+		callback(version=1, text="Stale session")
+		self.transport.callback_manager.callbacks["msg_lrd_a11y_hello"](version=1)
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.messages, [])
+
+	def test_terminate_unregisters_message_callback(self):
+		self.bridge.terminate()
+		self.assertNotIn("msg_lrd_a11y_message", self.transport.callback_manager.callbacks)
+
 	def test_terminate_unregisters_callbacks(self):
 		self.bridge.terminate()
 		self.assertNotIn("msg_lrd_a11y_hello", self.transport.callback_manager.callbacks)
@@ -278,6 +323,9 @@ class FakeBuiltInTransport:
 		self.serializer = FakeSerializer()
 		self.sent = []
 		self.standard = []
+		self.connected = True
+		self.transportDisconnected = Action()
+		self.transportClosing = Action()
 
 	def send(self, type=None, **kwargs):
 		self.sent.append({"type": type, **kwargs})
@@ -367,19 +415,194 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		elif hasattr(self.module.inputCore, "decide_executeGesture"):
 			del self.module.inputCore.decide_executeGesture
 
+	def _startRemoteFocus(self):
+		queueHandler.queuedFunctions.clear()
+		self.brailleHandler = FakeBrailleHandler()
+		self.module.braille.handler = self.brailleHandler
+		self.addCleanup(lambda: setattr(self.module.braille, "handler", None))
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		self._receiveFocus()
+		queueHandler.pumpAll()
+
+	def _receiveFocus(self, name="Remote button", nodeId="button"):
+		self.transport.parse(
+			json.dumps({
+				"type": "lrd_a11y_focus",
+				"version": 1,
+				"focus_id": nodeId,
+				"objects": [{"id": nodeId, "name": name, "role": "push button"}],
+			}).encode("utf-8"),
+		)
+
+	def _switchToLocal(self):
+		self.client.sendingKeys = False
+		self.client.setReceivingBraille(False)
+		self.brailleHandler.handleGainFocus(HostObject(4242))
+
+	def _switchToRemote(self):
+		self.client.sendingKeys = True
+		self.client.setReceivingBraille(True)
+
+	def test_control_resume_restores_cached_focus_without_sender_reply(self):
+		self._startRemoteFocus()
+		self._switchToLocal()
+		self._switchToRemote()
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.mainBuffer.regions[-1].obj.name, "Remote button")
+		self.assertEqual(len(self.brailleHandler.focused), 3)
+		self.assertEqual(self.brailleHandler.updated, [])
+
+	def test_control_resume_resend_rebuilds_remote_region(self):
+		self._startRemoteFocus()
+		self._switchToLocal()
+		self._switchToRemote()
+		self._receiveFocus()
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.mainBuffer.regions[-1].obj.name, "Remote button")
+		self.assertEqual(len(self.brailleHandler.focused), 3)
+
+	def test_local_control_caches_latest_focus_without_presenting_it(self):
+		self._startRemoteFocus()
+		self._switchToLocal()
+		self._receiveFocus("New remote focus", "other")
+		queueHandler.pumpAll()
+		self.assertEqual(len(self.brailleHandler.focused), 2)
+		self._switchToRemote()
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.mainBuffer.regions[-1].obj.name, "New remote focus")
+
+	def test_new_focus_before_queued_resume_prevents_old_focus_replay(self):
+		self._startRemoteFocus()
+		self._switchToLocal()
+		self._switchToRemote()
+		self.bridge._onFocus(
+			version=1,
+			focus_id="other",
+			objects=[{"id": "other", "name": "New focus"}],
+		)
+		# Deliver the new snapshot before the queued resume callback.
+		_queue, callback, args, kwargs = queueHandler.queuedFunctions.pop()
+		callback(*args, **kwargs)
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.mainBuffer.regions[-1].obj.name, "New focus")
+		self.assertEqual(len(self.brailleHandler.focused), 3)
+
+	def test_new_session_fallback_and_termination_expire_queued_resume(self):
+		for transition in ("hello", "fallback", "terminate"):
+			with self.subTest(transition=transition):
+				self._startRemoteFocus()
+				self._switchToLocal()
+				self._switchToRemote()
+				if transition == "terminate":
+					self.bridge.terminate()
+				else:
+					getattr(self.bridge, "_on" + transition.title())(version=1)
+				queueHandler.pumpAll()
+				self.assertEqual(len(self.brailleHandler.focused), 2)
+
+	def test_transport_replacement_rejects_resume_and_queued_output(self):
+		self._startRemoteFocus()
+		self._switchToLocal()
+		self._switchToRemote()
+		self.bridge._onFocus(version=1, focus_id="other", objects=[{"id": "other"}])
+		self.bridge._onMessage(version=1, text="Old transport")
+		self.client.leaderTransport = FakeBuiltInTransport()
+		queueHandler.pumpAll()
+		self.assertEqual(len(self.brailleHandler.focused), 2)
+		self.assertEqual(self.brailleHandler.messages, [])
+
+	def test_same_transport_reconnect_requires_new_focus(self):
+		for eventName in ("transportDisconnected", "transportClosing"):
+			with self.subTest(event=eventName):
+				self._startRemoteFocus()
+				self._switchToLocal()
+				self._switchToRemote()
+				getattr(self.transport, eventName).notify()
+				queueHandler.pumpAll()
+				self.assertFalse(self.bridge._negotiated)
+				self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+				queueHandler.pumpAll()
+				self.client.setReceivingBraille(True)
+				queueHandler.pumpAll()
+				self.assertEqual(len(self.brailleHandler.focused), 2)
+				self._receiveFocus("Reconnected focus")
+				queueHandler.pumpAll()
+				self.assertEqual(self.brailleHandler.mainBuffer.regions[-1].obj.name, "Reconnected focus")
+
+	def test_disconnect_expires_already_parsed_hello_and_focus(self):
+		self._startRemoteFocus()
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		self._receiveFocus("Old connection")
+		self.transport.transportDisconnected.notify()
+		queueHandler.pumpAll()
+		self.assertEqual(len(self.brailleHandler.focused), 1)
+		self.assertFalse(self.bridge._negotiated)
+
+	def test_temporary_messages_do_not_replay_across_control_handoff(self):
+		self._startRemoteFocus()
+		self.bridge._onMessage(version=1, text="Queued remote message")
+		self._switchToLocal()
+		self.bridge._onMessage(version=1, text="Message received during local control")
+		self._switchToRemote()
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.messages, [])
+		self.bridge._onMessage(version=1, text="Current message")
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.messages, ["Current message"])
+
+	def test_parsed_temporary_messages_do_not_survive_control_handoff(self):
+		self._startRemoteFocus()
+		self.transport.parse(b'{"type":"lrd_a11y_message","version":1,"text":"Queued remote"}')
+		self._switchToLocal()
+		self.transport.parse(b'{"type":"lrd_a11y_message","version":1,"text":"Received locally"}')
+		self._switchToRemote()
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.messages, [])
+		self.transport.parse(b'{"type":"lrd_a11y_message","version":1,"text":"Current message"}')
+		queueHandler.pumpAll()
+		self.assertEqual(self.brailleHandler.messages, ["Current message"])
+
 	def test_builtin_hello_is_intercepted_and_enables_nvda_braille_formatter(self):
 		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1,"origin":17}')
 		self.assertEqual(self.transport.sent, [])
 		queueHandler.pumpAll()
 		self.assertEqual(
 			self.transport.sent,
-			[{"type": "lrd_a11y_capability", "version": 1, "presentation": "nvda"}],
+			[{"type": "lrd_a11y_capability", "version": 1, "presentation": "nvda", "message_version": 1}],
 		)
 		self.assertFalse(self.client.localMachine.receivingBraille)
 		# Semantic mode replaces stock forwarding with its coordinate-aware decider.
 		self.assertEqual(self.client.leaderSession.registeredBrailleInput, 0)
 		self.assertIn(self.bridge._handleSemanticBrailleGesture, self.decider.handlers)
 		self.assertEqual(self.transport.standard, [])
+
+	def test_builtin_temporary_message_and_local_control(self):
+		fakeHandler = FakeBrailleHandler()
+		self.module.braille.handler = fakeHandler
+		self.addCleanup(lambda: setattr(self.module.braille, "handler", None))
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		queueHandler.pumpAll()
+		self.transport.parse(b'{"type":"lrd_a11y_message","version":1,"text":"Focus mode"}')
+		queueHandler.pumpAll()
+		self.assertEqual(fakeHandler.messages, ["Focus mode"])
+		self.client.sendingKeys = False
+		self.transport.parse(b'{"type":"lrd_a11y_message","version":1,"text":"local"}')
+		queueHandler.pumpAll()
+		self.assertEqual(fakeHandler.messages, ["Focus mode"])
+		self.assertEqual(self.transport.standard, [])
+
+	def test_builtin_message_is_dropped_if_control_changes_before_delivery(self):
+		fakeHandler = FakeBrailleHandler()
+		self.module.braille.handler = fakeHandler
+		self.addCleanup(lambda: setattr(self.module.braille, "handler", None))
+		self.transport.parse(b'{"type":"lrd_a11y_hello","version":1}')
+		queueHandler.pumpAll()
+		# The handler has accepted the message but the event queue has not
+		# delivered it. Returning to local control must suppress presentation.
+		self.bridge._onMessage(version=1, text="queued")
+		self.client.sendingKeys = False
+		queueHandler.pumpAll()
+		self.assertEqual(fakeHandler.messages, [])
 
 	def test_standard_remote_access_message_is_delegated_unchanged(self):
 		line = b'{"type":"speak","sequence":["hello"]}'
@@ -449,7 +672,7 @@ class BuiltInRemoteAccessTests(unittest.TestCase):
 		self.assertIn(self.bridge._handleSemanticBrailleGesture, self.decider.handlers)
 		self.assertEqual(
 			self.transport.sent[before:],
-			[{"type": "lrd_a11y_capability", "version": 1, "presentation": "nvda"}],
+			[{"type": "lrd_a11y_capability", "version": 1, "presentation": "nvda", "message_version": 1}],
 		)
 
 	def test_semantic_caret_uses_extension_message(self):
