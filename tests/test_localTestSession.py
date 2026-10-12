@@ -172,6 +172,22 @@ class LocalStatusSessionTests(unittest.TestCase):
 		self.assertFalse(cancelled.is_set())
 		self.assertIs(session.descriptor(), first)
 
+	def test_failed_consent_token_rotation_preserves_prior_session(self):
+		session = localTestSession.LocalStatusSession()
+		first = session.begin()
+		cancelled = session.cancellationEvent()
+		with (
+			mock.patch(
+				f"{PKG}.localTestRequest.secrets.token_urlsafe",
+				side_effect=OSError("entropy unavailable"),
+			),
+			self.assertRaises(OSError),
+		):
+			session.begin()
+		self.assertTrue(session.isCurrent(first))
+		self.assertFalse(cancelled.is_set())
+		self.assertIs(session.descriptor(), first)
+
 	def test_invalid_rotation_preserves_existing_session(self):
 		session = localTestSession.LocalStatusSession()
 		first = session.begin()
