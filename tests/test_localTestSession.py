@@ -84,7 +84,7 @@ class LocalStatusSessionTests(unittest.TestCase):
 			cancelled = session.cancellationEvent()
 			timer.assert_called_once()
 			self.assertEqual(timer.call_args.args[0], 30)
-			self.assertIs(timer.call_args.args[2][0], current)
+			self.assertIs(timer.call_args.kwargs["args"][0], current)
 			timer.call_args.args[1](current)
 		self.assertTrue(cancelled.is_set())
 		self.assertFalse(session.active())
