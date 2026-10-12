@@ -118,6 +118,19 @@ class LocalIpcTests(unittest.TestCase):
 			)
 		listener.assert_not_called()
 
+	def test_invalid_cancellation_signal_cannot_open_listener(self):
+		with (
+			mock.patch.object(localTestIpc, "Listener") as listener,
+			self.assertRaises(ValueError),
+		):
+			localTestIpc.serveOneStatus(
+				localTestIpc.pipeAddress("a" * 32),
+				b"k" * 32,
+				self.valid_status,
+				cancelled="not an event",
+			)
+		listener.assert_not_called()
+
 	def test_pre_cancelled_status_never_opens_listener(self):
 		cancelled = threading.Event()
 		cancelled.set()
