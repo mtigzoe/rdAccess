@@ -230,6 +230,30 @@ class LocalStatusSessionTests(unittest.TestCase):
 		):
 			session.readStatus(current, dict)
 
+	def test_one_shot_dispatch_uses_only_current_session_credentials(self):
+		session = localTestSession.LocalStatusSession()
+		current = session.begin()
+		callback = mock.Mock()
+		with mock.patch(f"{PKG}.localTestIpc.serveOneStatus") as serve:
+			session.serveStatusOnce(current, callback)
+		serve.assert_called_once_with(
+			current.address,
+			current.authKey,
+			callback,
+			cancelled=session.cancellationEvent(),
+		)
+
+	def test_one_shot_dispatch_rejects_stale_descriptor_without_listener(self):
+		session = localTestSession.LocalStatusSession()
+		stale = session.begin()
+		session.begin()
+		with (
+			mock.patch(f"{PKG}.localTestIpc.serveOneStatus") as serve,
+			self.assertRaises(PermissionError),
+		):
+			session.serveStatusOnce(stale, dict)
+		serve.assert_not_called()
+
 	def test_read_status_rejects_stale_descriptor_without_running_callback(self):
 		session = localTestSession.LocalStatusSession()
 		stale = session.begin()
