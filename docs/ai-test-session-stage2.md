@@ -108,3 +108,11 @@ This prevents concurrent launcher requests from observing a partially
 rotated in-memory session. Tests exercise concurrent `begin()` and
 `stop()` calls. This only protects the inactive session controller;
 it does not enforce Windows pipe ACLs or implement listener cancellation.
+
+### Stale descriptor rejection
+
+`LocalStatusSession.isCurrent(descriptor)` now checks descriptor **identity**
+against the still-active session under the same lifecycle lock. A descriptor
+obtained before stop, rotation, or expiration is rejected. This check must be
+performed again when a future request is processed; it does not replace
+transport authentication or Windows ACL enforcement.
