@@ -59,9 +59,13 @@ class LocalStatusSession:
 			newConsent = LocalConsent()
 			newConsent.enable(lifetimeSeconds=lifetimeSeconds)
 			# Construct the expiry timer before revoking any previous session.
-			# Timer construction can fail just like credential generation.
+			# Timer construction or daemon configuration can fail.
 			timer = threading.Timer(lifetimeSeconds, self._expire, args=(descriptor,))
-			timer.daemon = True
+			try:
+				timer.daemon = True
+			except Exception:
+				timer.cancel()
+				raise
 			self._stopLocked()
 			self._consent = newConsent
 			self._cancelled = threading.Event()
