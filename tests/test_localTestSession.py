@@ -100,7 +100,6 @@ class LocalStatusSessionTests(unittest.TestCase):
 		with self.assertRaises(PermissionError):
 			session.descriptor()
 
-
 	def test_parallel_rotation_and_stop_leave_consistent_session_state(self):
 		session = localTestSession.LocalStatusSession()
 		session.begin()
@@ -140,7 +139,6 @@ class LocalStatusSessionTests(unittest.TestCase):
 			with self.assertRaises(PermissionError):
 				session.descriptor()
 
-
 	def test_old_descriptor_rejected_after_rotation_or_stop(self):
 		session = localTestSession.LocalStatusSession()
 		first = session.begin()
@@ -157,7 +155,6 @@ class LocalStatusSessionTests(unittest.TestCase):
 			issued = session.begin(lifetimeSeconds=5)
 		with mock.patch(f"{PKG}.localTestRequest.time.monotonic", return_value=105):
 			self.assertFalse(session.isCurrent(issued))
-
 
 	def test_failed_rotation_preserves_prior_session(self):
 		session = localTestSession.LocalStatusSession()
