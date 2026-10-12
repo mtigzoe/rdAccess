@@ -151,6 +151,16 @@ class LocalIpcTests(unittest.TestCase):
 		callback.assert_not_called()
 		connection.recv_bytes.assert_not_called()
 
+	def test_cancellation_after_callback_finishes_rejects_result(self):
+		cancelled = threading.Event()
+
+		def finish_and_cancel():
+			cancelled.set()
+			return self.valid_status()
+
+		with self.assertRaises(CancelledError):
+			localTestIpc.waitForStatus(finish_and_cancel, cancelled=cancelled)
+
 	def test_callback_wait_rejects_pre_cancelled_session(self):
 		cancelled = threading.Event()
 		cancelled.set()
