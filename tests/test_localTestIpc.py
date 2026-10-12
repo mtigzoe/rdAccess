@@ -109,7 +109,6 @@ class LocalIpcTests(unittest.TestCase):
 			)
 		listener.assert_not_called()
 
-
 	def test_client_response_timeout_closes_connection(self):
 		connection = mock.MagicMock()
 		connection.__enter__.return_value = connection
