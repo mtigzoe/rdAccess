@@ -168,6 +168,10 @@ def serveOneStatus(
 	if type(authKey) is not bytes or len(authKey) < 32:
 		raise ValueError("Invalid authentication key")
 	validatePipeAddress(address)
+	if cancelled is not None and not isinstance(cancelled, threading.Event):
+		raise ValueError("Invalid cancellation event")
+	if cancelled is not None and cancelled.is_set():
+		raise CancelledError("Local status session revoked")
 	from .localTestRequest import validateRequest
 
 	with (
