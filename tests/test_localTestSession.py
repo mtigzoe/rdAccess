@@ -133,6 +133,17 @@ class LocalStatusSessionTests(unittest.TestCase):
 		self.assertFalse(previous.is_set())
 		session.stop()
 
+	def test_timer_start_and_cancel_failure_still_revokes_consent(self):
+		session = localTestSession.LocalStatusSession()
+		with mock.patch.object(localTestSession.threading, "Timer") as timer:
+			timer.return_value.start.side_effect = RuntimeError("start failed")
+			timer.return_value.cancel.side_effect = RuntimeError("cancel failed")
+			with self.assertRaisesRegex(RuntimeError, "start failed"):
+				session.begin()
+		self.assertFalse(session.active())
+		self.assertIsNone(session._descriptor)
+		self.assertIsNone(session._expiryTimer)
+
 	def test_timer_creation_failure_preserves_existing_consent(self):
 		session = localTestSession.LocalStatusSession()
 		first = session.begin()
