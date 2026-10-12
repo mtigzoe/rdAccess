@@ -12,6 +12,7 @@ from __future__ import annotations
 import secrets
 import threading
 from collections.abc import Callable
+from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -103,7 +104,10 @@ class LocalStatusSession:
 			if not self._activeLocked() or self._descriptor is not descriptor:
 				raise PermissionError("Local status session inactive")
 			cancelled = self._cancelled
-		result = waitForStatus(callback, cancelled=cancelled)
+		try:
+			result = waitForStatus(callback, cancelled=cancelled)
+		except CancelledError as exc:
+			raise PermissionError("Local status session revoked") from exc
 		with self._lock:
 			if not self._activeLocked() or self._descriptor is not descriptor:
 				raise PermissionError("Local status session revoked")
