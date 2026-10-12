@@ -16,6 +16,7 @@ from typing import Any
 
 _MAX_REQUEST = 1024
 _MAX_RESPONSE = 4096
+_RESPONSE_TIMEOUT_SECONDS = 5.0
 _PIPE_PREFIX = "\\\\.\\pipe\\linux-rdaccess-test-"
 
 
@@ -96,6 +97,8 @@ def requestStatus(address: str, authKey: bytes) -> dict[str, Any]:
 	validatePipeAddress(address)
 	with Client(address, family="AF_PIPE", authkey=authKey) as connection:
 		connection.send_bytes(encodeJson({"version": 1, "action": "status"}, limit=_MAX_REQUEST))
+		if not connection.poll(_RESPONSE_TIMEOUT_SECONDS):
+			raise TimeoutError("Local status response timed out")
 		reply = connection.recv_bytes(_MAX_RESPONSE)
 	return sanitizeStatus(decodeJson(reply, limit=_MAX_RESPONSE))
 
@@ -120,6 +123,8 @@ def serveOneStatus(
 		Listener(address, family="AF_PIPE", authkey=authKey) as listener,
 		listener.accept() as connection,
 	):
+		if not connection.poll(_RESPONSE_TIMEOUT_SECONDS):
+			raise TimeoutError("Local status request timed out")
 		request = decodeJson(connection.recv_bytes(_MAX_REQUEST), limit=_MAX_REQUEST)
 		validateRequest(request)
 		response = sanitizeStatus(statusCallback())
