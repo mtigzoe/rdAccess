@@ -361,7 +361,8 @@ class LocalStatusSessionTests(unittest.TestCase):
 			session.serveStatusOnce(current, callback, dispatch=mock.Mock())
 		serve.assert_called_once()
 		self.assertEqual(serve.call_args.args[:2], (current.address, current.authKey))
-		self.assertEqual(serve.call_args.kwargs, {"cancelled": session.cancellationEvent(), "dispatch": serve.call_args.kwargs["dispatch"]})
+		self.assertIs(serve.call_args.kwargs["cancelled"], session.cancellationEvent())
+		self.assertEqual(set(serve.call_args.kwargs), {"cancelled", "dispatch"})
 		self.assertIs(serve.call_args.args[2](), callback.return_value)
 
 	def test_one_shot_requires_main_thread_dispatcher(self):
