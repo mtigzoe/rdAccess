@@ -165,6 +165,8 @@ def serveOneStatus(
 	integration must provide same-user access restrictions, timeouts, lifecycle
 	cleanup and marshal the callback to the NVDA main thread.
 	"""
+	from .localTestRequest import validateRequest
+
 	if type(authKey) is not bytes or len(authKey) < 32:
 		raise ValueError("Invalid authentication key")
 	validatePipeAddress(address)
@@ -172,8 +174,6 @@ def serveOneStatus(
 		raise ValueError("Invalid cancellation event")
 	if cancelled is not None and cancelled.is_set():
 		raise CancelledError("Local status session revoked")
-	from .localTestRequest import validateRequest
-
 	with (
 		Listener(address, family="AF_PIPE", authkey=authKey) as listener,
 		listener.accept() as connection,
