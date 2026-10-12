@@ -59,3 +59,12 @@ NVDA-side opt-in/stop controls, integrate the ephemeral consent gate, marshal
 status callbacks safely to NVDA's event thread, add request timeouts and
 shutdown behavior, and write Windows integration tests. Automatic connect
 and key injection remain explicitly out of scope.
+
+### Timeout scope
+
+The inactive IPC primitives now require the accepted connection to produce
+its request, and the client to receive its response, within five seconds.
+These `poll()` checks **do not** bound `Listener.accept()`, initial client
+pipe connection, or a slow NVDA status callback. The listener must remain
+disabled until a cancellable lifecycle and Windows same-user pipe ACL have
+been implemented and tested; these receive timeouts alone are insufficient.
