@@ -1,6 +1,7 @@
 """Tests for an inactive, in-memory Windows local status session lifecycle."""
 
 import importlib.util
+import threading
 import sys
 import types
 import unittest
@@ -99,6 +100,46 @@ class LocalStatusSessionTests(unittest.TestCase):
 		self.assertFalse(session.active())
 		with self.assertRaises(PermissionError):
 			session.descriptor()
+
+
+	def test_parallel_rotation_and_stop_leave_consistent_session_state(self):
+		session = localTestSession.LocalStatusSession()
+		session.begin()
+		previous = session.cancellationEvent()
+		barrier = threading.Barrier(3)
+		errors = []
+
+		def rotate():
+			try:
+				barrier.wait(timeout=2)
+				for _ in range(30):
+					session.begin()
+			except Exception as exc:
+				errors.append(exc)
+
+		def revoke():
+			try:
+				barrier.wait(timeout=2)
+				for _ in range(30):
+					session.stop()
+			except Exception as exc:
+				errors.append(exc)
+
+		threads = (threading.Thread(target=rotate), threading.Thread(target=revoke))
+		for thread in threads:
+			thread.start()
+		barrier.wait(timeout=2)
+		for thread in threads:
+			thread.join(timeout=3)
+		self.assertFalse(any(thread.is_alive() for thread in threads))
+		self.assertEqual(errors, [])
+		self.assertTrue(previous.is_set())
+		if session.active():
+			self.assertFalse(session.cancellationEvent().is_set())
+			self.assertEqual(len(session.descriptor().authKey), 32)
+		else:
+			with self.assertRaises(PermissionError):
+				session.descriptor()
 
 	def test_invalid_lifetime_creates_no_session(self):
 		session = localTestSession.LocalStatusSession()
