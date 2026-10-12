@@ -25,7 +25,7 @@ from logHandler import log
 from utils.security import isRunningOnSecureDesktop, post_sessionLockStateChanged
 from winAPI.secureDesktop import post_secureDesktopStateChange
 
-from . import directoryChanges, handlers, localTestRequest, localTestStatus, settingsPanel
+from . import directoryChanges, handlers, localTestIpc, localTestRequest, localTestStatus, settingsPanel
 from .localTestSession import LocalStatusSession
 from .synthDetect import SynthDetector
 
@@ -176,6 +176,17 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if isRunningOnSecureDesktop() or self._remoteAccessSemanticBrailleStopped:
 			raise PermissionError("Local test status unavailable")
 		return self.getLocalTestStatus()
+
+	def getLocalTestStatusFromWorker(self, *, cancelled=None):
+		"""Read only the allowlisted status through NVDA's event thread.
+
+		Caller must be on a worker thread. Does not start IPC or remote access.
+		"""
+		return localTestIpc.waitForMainThreadStatus(
+			lambda: self.handleLocalTestRequest({"version": 1, "action": "status"}),
+			wx.CallAfter,
+			cancelled=cancelled,
+		)
 
 	def _refreshRemoteAccessSemanticBraille(self):
 		"""Attach semantic Linux braille to a live NVDA Remote/TeleNVDA transport."""
