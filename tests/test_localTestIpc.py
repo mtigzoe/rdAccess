@@ -198,6 +198,46 @@ class LocalIpcTests(unittest.TestCase):
 			)
 		connection.send_bytes.assert_not_called()
 
+	def test_main_thread_dispatch_returns_sanitized_status(self):
+		queue = []
+		callback = mock.Mock(return_value=self.valid_status())
+
+		def enqueue(task):
+			queue.append(task)
+			threading.Thread(target=task, daemon=True).start()
+
+		status = localTestIpc.waitForMainThreadStatus(callback, enqueue)
+		self.assertEqual(status, self.valid_status())
+		callback.assert_called_once()
+		self.assertEqual(len(queue), 1)
+
+	def test_expired_main_thread_dispatch_does_not_read_status(self):
+		pending = []
+		callback = mock.Mock(return_value=self.valid_status())
+		with self.assertRaises(TimeoutError):
+			localTestIpc.waitForMainThreadStatus(
+				callback,
+				pending.append,
+				timeoutSeconds=0.01,
+			)
+		self.assertEqual(len(pending), 1)
+		pending[0]()
+		callback.assert_not_called()
+
+	def test_cancelled_main_thread_dispatch_does_not_read_status(self):
+		cancelled = threading.Event()
+		pending = []
+
+		def enqueue(task):
+			pending.append(task)
+			cancelled.set()
+
+		callback = mock.Mock(return_value=self.valid_status())
+		with self.assertRaises(CancelledError):
+			localTestIpc.waitForMainThreadStatus(callback, enqueue, cancelled=cancelled)
+		pending[0]()
+		callback.assert_not_called()
+
 	def test_server_never_calls_status_callback_for_unsupported_action(self):
 		connection = mock.MagicMock()
 		connection.__enter__.return_value = connection
