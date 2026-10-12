@@ -15,8 +15,10 @@ class StatusSnapshotTests(unittest.TestCase):
 		transport = types.SimpleNamespace(connected=connected)
 		client = types.SimpleNamespace(leaderTransport=transport, sendingKeys=active)
 		return types.SimpleNamespace(
-			transport=transport, _client=client,
-			_negotiated=negotiated, _terminated=False,
+			transport=transport,
+			_client=client,
+			_negotiated=negotiated,
+			_terminated=False,
 		)
 
 	def test_no_bridge_is_unverified(self):
