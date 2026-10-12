@@ -55,8 +55,10 @@ class LocalTestRequestTests(unittest.TestCase):
 			self.assertEqual(gate.authorize(token, {"version": 1, "action": "status"}), "status")
 			with self.assertRaises(PermissionError):
 				gate.authorize("wrong", {"version": 1, "action": "status"})
-		with mock.patch.object(localTestRequest.time, "monotonic", return_value=110):
-			with self.assertRaises(PermissionError):
+		with (
+			mock.patch.object(localTestRequest.time, "monotonic", return_value=110),
+			self.assertRaises(PermissionError),
+		):
 				gate.authorize(token, {"version": 1, "action": "status"})
 
 	def test_consent_revocation_and_rotation(self):
