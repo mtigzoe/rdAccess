@@ -89,6 +89,17 @@ class LocalStatusSessionTests(unittest.TestCase):
 		self.assertTrue(cancelled.is_set())
 		self.assertFalse(session.active())
 
+	def test_timer_start_failure_revokes_new_consent(self):
+		session = localTestSession.LocalStatusSession()
+		with mock.patch.object(localTestSession.threading, "Timer") as timer:
+			timer.return_value.start.side_effect = RuntimeError("timer unavailable")
+			with self.assertRaises(RuntimeError):
+				session.begin()
+			timer.return_value.cancel.assert_called()
+		self.assertFalse(session.active())
+		with self.assertRaises(PermissionError):
+			session.descriptor()
+
 	def test_old_expiry_timer_cannot_cancel_rotated_session(self):
 		session = localTestSession.LocalStatusSession()
 		with mock.patch.object(localTestSession.threading, "Timer") as timer:
