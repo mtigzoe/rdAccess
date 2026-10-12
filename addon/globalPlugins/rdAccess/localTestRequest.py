@@ -9,6 +9,9 @@ not be treated as caller authentication; IPC must authenticate separately.
 
 from __future__ import annotations
 
+import hmac
+import secrets
+import time
 from typing import Any
 
 _ALLOWED_ACTIONS = frozenset({"status"})
@@ -25,3 +28,40 @@ def validateRequest(payload: Any) -> str:
 	if type(payload["action"]) is not str or payload["action"] not in _ALLOWED_ACTIONS:
 		raise ValueError("Unsupported action")
 	return payload["action"]
+
+
+class LocalConsent:
+	"""Single-session consent gate for a future authenticated local transport.
+
+	The random token is never persisted. Enabling this gate alone creates
+	no IPC endpoint and does not grant connection/keyboard permissions.
+	"""
+
+	def __init__(self):
+		self._secret: str | None = None
+		self._expiresAt = 0.0
+
+	def enable(self, *, lifetimeSeconds: int = 300) -> str:
+		if type(lifetimeSeconds) is not int or not 1 <= lifetimeSeconds <= 300:
+			raise ValueError("Invalid consent lifetime")
+		self.revoke()
+		self._secret = secrets.token_urlsafe(32)
+		self._expiresAt = time.monotonic() + lifetimeSeconds
+		return self._secret
+
+	def revoke(self) -> None:
+		self._secret = None
+		self._expiresAt = 0.0
+
+	def authorize(self, token: str, payload: Any) -> str:
+		"""Require valid consent and a read-only validated command."""
+		action = validateRequest(payload)
+		secret = self._secret
+		if (
+			secret is None
+			or type(token) is not str
+			or time.monotonic() >= self._expiresAt
+			or not hmac.compare_digest(secret, token)
+		):
+			raise PermissionError("Local test consent required")
+		return action
