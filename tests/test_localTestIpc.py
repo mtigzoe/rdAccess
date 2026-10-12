@@ -48,7 +48,6 @@ class LocalIpcTests(unittest.TestCase):
 			localTestIpc.requestStatus(localTestIpc.pipeAddress("a" * 32), b"short")
 		client.assert_not_called()
 
-
 	def test_server_rejects_invalid_address_without_opening_listener(self):
 		with (
 			mock.patch.object(localTestIpc, "Listener") as listener,
