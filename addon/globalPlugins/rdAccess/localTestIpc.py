@@ -26,6 +26,15 @@ def pipeAddress(nonce: str) -> str:
 	return _PIPE_PREFIX + nonce
 
 
+def validatePipeAddress(address: str) -> str:
+	"""Reject arbitrary pipe names and remote pipe paths before any IPC."""
+	if type(address) is not str or not address.startswith(_PIPE_PREFIX):
+		raise ValueError("Invalid local pipe address")
+	if pipeAddress(address[len(_PIPE_PREFIX):]) != address:
+		raise ValueError("Invalid local pipe address")
+	return address
+
+
 def encodeJson(message: dict[str, Any], *, limit: int) -> bytes:
 	encoded = json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode("ascii")
 	if len(encoded) > limit:
@@ -49,6 +58,7 @@ def requestStatus(address: str, authKey: bytes) -> dict[str, Any]:
 	"""Client helper; does not connect unless called with an explicit auth key."""
 	if type(authKey) is not bytes or len(authKey) < 32:
 		raise ValueError("Invalid authentication key")
+	validatePipeAddress(address)
 	with Client(address, family="AF_PIPE", authkey=authKey) as connection:
 		connection.send_bytes(encodeJson({"version": 1, "action": "status"}, limit=_MAX_REQUEST))
 		reply = connection.recv_bytes(_MAX_RESPONSE)
@@ -68,6 +78,7 @@ def serveOneStatus(
 	"""
 	if type(authKey) is not bytes or len(authKey) < 32:
 		raise ValueError("Invalid authentication key")
+	validatePipeAddress(address)
 	from .localTestRequest import validateRequest
 
 	with (
