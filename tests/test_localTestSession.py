@@ -1,8 +1,8 @@
 """Tests for an inactive, in-memory Windows local status session lifecycle."""
 
 import importlib.util
-import threading
 import sys
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -56,7 +56,6 @@ class LocalStatusSessionTests(unittest.TestCase):
 			self.assertFalse(session.active())
 			with self.assertRaises(PermissionError):
 				session.descriptor()
-
 
 	def test_stop_signals_pending_status_wait(self):
 		session = localTestSession.LocalStatusSession()
