@@ -79,3 +79,11 @@ not be used for keyboard actions or connecting Remote Access. A proper NVDA
 main-thread dispatcher with lifecycle cancellation is still required before
 live activation. Listener acceptance and Windows pipe ACL requirements are
 also unresolved.
+
+### Cooperative cancellation of status waits
+
+The internal `waitForStatus()` helper now accepts an optional cancellation
+event. An already-revoked request does not start a callback, and a pending
+wait can return early when the event is set. **Cancellation does not kill the
+status callback worker or close a blocked named-pipe `accept()` call.** This
+is still a component-level primitive, not an activated NVDA session listener.
