@@ -58,6 +58,21 @@ class LocalStatusSessionTests(unittest.TestCase):
 			with self.assertRaises(PermissionError):
 				session.descriptor()
 
+	def test_expired_session_status_check_clears_credentials_and_timer(self):
+		session = localTestSession.LocalStatusSession()
+		with (
+			mock.patch.object(localTestSession.threading, "Timer") as timer,
+			mock.patch(f"{PKG}.localTestRequest.time.monotonic", return_value=100),
+		):
+			session.begin(lifetimeSeconds=5)
+			cancelled = session.cancellationEvent()
+		with mock.patch(f"{PKG}.localTestRequest.time.monotonic", return_value=105):
+			self.assertFalse(session.active())
+		self.assertTrue(cancelled.is_set())
+		timer.return_value.cancel.assert_called()
+		self.assertIsNone(session._descriptor)
+		self.assertIsNone(session._expiryTimer)
+
 	def test_stop_signals_pending_status_wait(self):
 		session = localTestSession.LocalStatusSession()
 		session.begin()
