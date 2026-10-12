@@ -67,6 +67,11 @@ class LocalStatusSession:
 		with self._lock:
 			self._stopLocked()
 
+	def isCurrent(self, descriptor: LocalSessionDescriptor) -> bool:
+		"""Reject stale credentials after rotation, revocation, or expiry."""
+		with self._lock:
+			return self._activeLocked() and self._descriptor is descriptor
+
 	def cancellationEvent(self) -> threading.Event:
 		"""Get the current session's cancellation signal, when still active."""
 		with self._lock:
