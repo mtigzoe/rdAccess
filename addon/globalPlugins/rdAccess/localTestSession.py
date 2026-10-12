@@ -10,6 +10,7 @@ enable it and separately install a secure same-user transport.
 from __future__ import annotations
 
 import secrets
+import threading
 from dataclasses import dataclass, field
 
 from .localTestRequest import LocalConsent
@@ -27,6 +28,8 @@ class LocalStatusSession:
 	def __init__(self):
 		self._consent = LocalConsent()
 		self._descriptor: LocalSessionDescriptor | None = None
+		self._cancelled = threading.Event()
+		self._cancelled.set()
 
 	def begin(self, *, lifetimeSeconds: int = 300) -> LocalSessionDescriptor:
 		"""Explicit opt-in. Caller controls actual transport creation."""
@@ -40,16 +43,27 @@ class LocalStatusSession:
 			authKey=secrets.token_bytes(32),
 		)
 		self._consent.enable(lifetimeSeconds=lifetimeSeconds)
+		self._cancelled = threading.Event()
 		self._descriptor = descriptor
 		return descriptor
 
 	def active(self) -> bool:
-		return self._descriptor is not None and self._consent.active()
+		if self._descriptor is None or not self._consent.active():
+			self._cancelled.set()
+			return False
+		return not self._cancelled.is_set()
 
 	def stop(self) -> None:
 		"""Revoke without contacting NVDA, starting a listener, or sending keys."""
+		self._cancelled.set()
 		self._consent.revoke()
 		self._descriptor = None
+
+	def cancellationEvent(self) -> threading.Event:
+		"""Expose the current session's revocation signal to a trusted status waiter."""
+		if not self.active():
+			raise PermissionError("Local status session inactive")
+		return self._cancelled
 
 	def descriptor(self) -> LocalSessionDescriptor:
 		if not self.active() or self._descriptor is None:
