@@ -217,6 +217,7 @@ def serveOneStatus(
 	statusCallback: Callable[[], dict[str, Any]],
 	*,
 	cancelled: threading.Event | None = None,
+	dispatch: Callable[[Callable[[], None]], None] | None = None,
 ) -> None:
 	"""One authenticated request; must only be called after explicit user opt-in.
 
@@ -244,7 +245,10 @@ def serveOneStatus(
 		validateRequest(request)
 		if cancelled is not None and cancelled.is_set():
 			raise CancelledError("Local status session revoked")
-		response = waitForStatus(statusCallback, cancelled=cancelled)
+		if dispatch is None:
+			response = waitForStatus(statusCallback, cancelled=cancelled)
+		else:
+			response = waitForMainThreadStatus(statusCallback, dispatch, cancelled=cancelled)
 		if cancelled is not None and cancelled.is_set():
 			raise CancelledError("Local status session revoked")
 		connection.send_bytes(encodeJson(response, limit=_MAX_RESPONSE))
