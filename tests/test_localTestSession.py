@@ -247,7 +247,7 @@ class LocalStatusSessionTests(unittest.TestCase):
 		status = mock.Mock(return_value={})
 		captured = []
 
-		def capture_handler(_address, _auth_key, callback, *, _cancelled=None):
+		def capture_handler(_address, _auth_key, callback, **_kwargs):
 			captured.append(callback)
 
 		with mock.patch(f"{PKG}.localTestIpc.serveOneStatus", side_effect=capture_handler):
