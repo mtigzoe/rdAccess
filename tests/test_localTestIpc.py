@@ -109,6 +109,19 @@ class LocalIpcTests(unittest.TestCase):
 			)
 		listener.assert_not_called()
 
+
+	def test_client_response_timeout_closes_connection(self):
+		connection = mock.MagicMock()
+		connection.__enter__.return_value = connection
+		connection.poll.return_value = False
+		with (
+			mock.patch.object(localTestIpc, "Client", return_value=connection),
+			self.assertRaises(TimeoutError),
+		):
+			localTestIpc.requestStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32)
+		connection.recv_bytes.assert_not_called()
+		connection.__exit__.assert_called_once()
+
 	def test_status_client_sends_only_allowlisted_request(self):
 		connection = mock.MagicMock()
 		connection.__enter__.return_value = connection
@@ -124,6 +137,7 @@ class LocalIpcTests(unittest.TestCase):
 				"action": "status",
 			},
 		)
+		connection.poll.assert_called_once_with(5.0)
 		connection.recv_bytes.assert_called_once_with(4096)
 
 
