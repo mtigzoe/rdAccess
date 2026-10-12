@@ -1,0 +1,25 @@
+name: Ruff diagnostics
+
+on:
+  pull_request:
+    paths:
+      - "addon/globalPlugins/rdAccess/localTest*.py"
+      - "tests/test_localTest*.py"
+      - "pyproject.toml"
+      - ".github/workflows/ruff-diagnostics.yml"
+  workflow_dispatch:
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ruff
+        run: python -m pip install ruff==0.16.4
+      - name: Report lint violations without rewriting files
+        run: |
+          ruff check --no-fix --output-format concise addon/globalPlugins/rdAccess/localTestIpc.py addon/globalPlugins/rdAccess/localTestSession.py tests/test_localTestIpc.py tests/test_localTestSession.py
+      - name: Report formatter violations without rewriting files
+        if: always()
+        run: |
+          ruff format --check addon/globalPlugins/rdAccess/localTestIpc.py addon/globalPlugins/rdAccess/localTestSession.py tests/test_localTestIpc.py tests/test_localTestSession.py
