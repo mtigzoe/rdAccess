@@ -134,6 +134,9 @@ class LocalStatusSession:
 			serveOneStatus(descriptor.address, descriptor.authKey, callback, cancelled=cancelled)
 		except CancelledError as exc:
 			raise PermissionError("Local status session revoked") from exc
+		with self._lock:
+			if not self._activeLocked() or self._descriptor is not descriptor:
+				raise PermissionError("Local status session revoked")
 
 	def cancellationEvent(self) -> threading.Event:
 		"""Get the current session's cancellation signal, when still active."""
