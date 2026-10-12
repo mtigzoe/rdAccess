@@ -157,9 +157,11 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._localTestSession,
 			self.getLocalTestStatus,
 			wx.CallAfter,
-			lambda: self._localTestUiInitialized
-			and not isRunningOnSecureDesktop()
-			and not self._remoteAccessSemanticBrailleStopped,
+			lambda: (
+				self._localTestUiInitialized
+				and not isRunningOnSecureDesktop()
+				and not self._remoteAccessSemanticBrailleStopped
+			),
 			self._notifyLocalTestSession,
 		)
 		if isRunningOnSecureDesktop():

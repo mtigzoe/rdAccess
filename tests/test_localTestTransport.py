@@ -262,6 +262,7 @@ class WindowsTransportTests(unittest.TestCase):
 			c.c_void_p,
 			c.c_void_p,
 		)
+		getAce = api._bind(api._advapi, "GetAce", w.BOOL, c.c_void_p, w.DWORD, c.c_void_p)
 		createRestricted = api._bind(
 			api._advapi,
 			"CreateRestrictedToken",
@@ -286,14 +287,27 @@ class WindowsTransportTests(unittest.TestCase):
 
 		address = ipc.pipeAddress(secrets.token_hex(16))
 		with api.Pipe.server(address) as pipe:
-			descriptor, text = c.c_void_p(), c.c_void_p()
-			self.assertEqual(getSecurity(pipe.handle, 6, 4, None, None, None, None, c.byref(descriptor)), 0)
+			descriptor, text, dacl = c.c_void_p(), c.c_void_p(), c.c_void_p()
+			self.assertEqual(
+				getSecurity(pipe.handle, 6, 4, None, None, c.byref(dacl), None, c.byref(descriptor)),
+				0,
+			)
 			try:
 				self.assertTrue(toSddl(descriptor, 1, 4, c.byref(text), None))
 				actual = c.wstring_at(text)
 				self.assertIn("D:P", actual)
 				self.assertEqual(actual.count("(A;"), 1)
-				self.assertIn(api.currentUserSid(), actual)
+				# SDDL can abbreviate the built-in Administrator's SID as LA
+				# (as on Windows CI). Compare the actual ACE SID numerically.
+				ace, sidText = c.c_void_p(), c.c_void_p()
+				self.assertTrue(getAce(dacl, 1, c.byref(ace)))
+				self.assertEqual(c.cast(ace, c.POINTER(w.BYTE))[0], 0)  # ACCESS_ALLOWED_ACE
+				self.assertEqual(c.cast(ace.value + 4, c.POINTER(w.DWORD))[0], api._PIPE_RIGHTS)
+				self.assertTrue(api._sidString(c.c_void_p(ace.value + 8), c.byref(sidText)))
+				try:
+					self.assertEqual(c.wstring_at(sidText), api.currentUserSid())
+				finally:
+					api._free(sidText)
 				# The kernel maps GENERIC_ALL to file/pipe-specific FILE_ALL_ACCESS.
 				self.assertIn("(D;;FA;;;NU)", actual)
 			finally:
