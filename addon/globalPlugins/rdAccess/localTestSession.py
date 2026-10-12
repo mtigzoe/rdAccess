@@ -10,7 +10,7 @@ enable it and separately install a secure same-user transport.
 from __future__ import annotations
 
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .localTestRequest import LocalConsent
 
@@ -18,7 +18,7 @@ from .localTestRequest import LocalConsent
 @dataclass(frozen=True)
 class LocalSessionDescriptor:
 	address: str
-	authKey: bytes
+	authKey: bytes = field(repr=False)
 
 
 class LocalStatusSession:
