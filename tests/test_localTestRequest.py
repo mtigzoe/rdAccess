@@ -77,6 +77,17 @@ class LocalTestRequestTests(unittest.TestCase):
 		with self.assertRaises(ValueError):
 			gate.authorize(token, {"version": 1, "action": "connect"})
 
+	def test_consent_active_flag_expires_and_revokes(self):
+		gate = localTestRequest.LocalConsent()
+		self.assertFalse(gate.active())
+		with mock.patch.object(localTestRequest.time, "monotonic", return_value=100):
+			gate.enable(lifetimeSeconds=5)
+			self.assertTrue(gate.active())
+		with mock.patch.object(localTestRequest.time, "monotonic", return_value=105):
+			self.assertFalse(gate.active())
+		gate.revoke()
+		self.assertFalse(gate.active())
+
 	def test_consent_lifetime_is_bounded(self):
 		gate = localTestRequest.LocalConsent()
 		for duration in (0, 301, True, -1, 5.0):
