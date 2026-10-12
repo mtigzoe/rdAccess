@@ -60,7 +60,9 @@ class LocalStatusSessionTests(unittest.TestCase):
 		session = localTestSession.LocalStatusSession()
 		with (
 			mock.patch.object(
-				localTestSession.secrets, "token_bytes", side_effect=OSError("entropy unavailable")
+				localTestSession.secrets,
+				"token_bytes",
+				side_effect=OSError("entropy unavailable"),
 			),
 			self.assertRaises(OSError),
 		):
