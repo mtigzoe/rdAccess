@@ -212,3 +212,10 @@ only from a worker thread. This method does not start a listener, grant
 consent, or initiate a Remote Access connection. Integration tests under
 a live NVDA environment are still necessary before exposing it through
 Windows IPC.
+
+### Prevent GUI-thread self-waits
+
+`getLocalTestStatusFromWorker()` now explicitly rejects invocation from
+Python's main thread before queuing `wx.CallAfter`, avoiding an otherwise
+avoidable five-second GUI-thread self-wait. This does not change the inactive
+listener state; Windows IPC ACL and cancellable accept remain outstanding.
