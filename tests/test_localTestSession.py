@@ -243,6 +243,19 @@ class LocalStatusSessionTests(unittest.TestCase):
 			cancelled=session.cancellationEvent(),
 		)
 
+	def test_one_shot_dispatch_rechecks_revocation_after_handler_returns(self):
+		session = localTestSession.LocalStatusSession()
+		current = session.begin()
+
+		def revoke_during_handler(*args, **kwargs):
+			session.stop()
+
+		with (
+			mock.patch(f"{PKG}.localTestIpc.serveOneStatus", side_effect=revoke_during_handler),
+			self.assertRaises(PermissionError),
+		):
+			session.serveStatusOnce(current, dict)
+
 	def test_one_shot_dispatch_rejects_stale_descriptor_without_listener(self):
 		session = localTestSession.LocalStatusSession()
 		stale = session.begin()
