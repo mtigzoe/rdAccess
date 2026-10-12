@@ -27,8 +27,15 @@ class LocalTestRequestTests(unittest.TestCase):
 				localTestRequest.validateRequest({"version": 1, "action": "status", field: "secret"})
 
 	def test_malformed_requests_fail_closed(self):
-		for request in (None, [], "", {}, {"version": True, "action": "status"},
-						{"version": 2, "action": "status"}, {"version": 1, "action": 1}):
+		for request in (
+			None,
+			[],
+			"",
+			{},
+			{"version": True, "action": "status"},
+			{"version": 2, "action": "status"},
+			{"version": 1, "action": 1},
+		):
 			with self.subTest(request=request), self.assertRaises(ValueError):
 				localTestRequest.validateRequest(request)
 
