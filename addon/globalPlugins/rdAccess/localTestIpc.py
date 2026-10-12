@@ -174,12 +174,17 @@ def waitForMainThreadStatus(
 		raise ValueError("Invalid cancellation event")
 	if cancelled is not None and cancelled.is_set():
 		raise CancelledError("Local status callback cancelled")
+	callerThread = threading.current_thread()
 	completed = threading.Event()
 	expired = threading.Event()
 	result: list[dict[str, Any]] = []
 	errors: list[Exception] = []
 
 	def runOnMainThread() -> None:
+		if threading.current_thread() is callerThread:
+			errors.append(RuntimeError("Dispatcher executed on the requesting thread"))
+			completed.set()
+			return
 		if expired.is_set() or (cancelled is not None and cancelled.is_set()):
 			completed.set()
 			return
