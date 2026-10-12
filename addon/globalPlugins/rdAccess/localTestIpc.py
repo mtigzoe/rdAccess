@@ -145,6 +145,8 @@ def waitForStatus(
 		if remaining <= 0:
 			raise TimeoutError("Local status callback timed out")
 		completed.wait(min(remaining, 0.05))
+	if cancelled is not None and cancelled.is_set():
+		raise CancelledError("Local status callback cancelled")
 	if errors:
 		raise errors[0]
 	return result[0]
