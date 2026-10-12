@@ -12,7 +12,7 @@
 - [x] Add Windows transport, security, lifecycle, and orchestration regressions.
 - [x] Run lint, types, unit/integration tests, and packaging checks.
 - [x] Commit and push both coherent PR updates.
-- [ ] Verify final Windows Actions after the pending-DNS and POT extraction corrections.
+- [x] Verify final Windows Actions after the pending-DNS and POT extraction corrections.
 - [ ] Obtain separate authorization for live NVDA/Orca and physical braille testing.
 
 Baseline: remote Windows head fb2287d, Linux head 12079d4. GitHub unit tests
@@ -28,8 +28,9 @@ also pass. Final counts and Actions results are recorded in the PR descriptions.
 Windows CI exposed Administrator SID abbreviation in SDDL; the regression now
 compares the raw ACE SID. The add-on build passed, but POT extraction rejected
 the non-ASCII menu ellipsis; its source label now uses three ASCII dots.
-All six companion workflows passed at 2c1045f. Final Windows Actions remain to
-be checked after the connection-cancellation improvements.
+All six companion workflows passed at 2c1045f. All three Windows workflows passed
+at 7de882e after the connection-cancellation improvements: 422 unit tests, Ruff,
+and add-on packaging with POT extraction.
 
 Remaining limitations: legacy automatic connection lacks a bounded cleanup API;
 start-all reuses a configured Orca session because Linux connect normally restarts
