@@ -85,6 +85,24 @@ class LocalStatusSession:
 		with self._lock:
 			return self._activeLocked() and self._descriptor is descriptor
 
+	def readStatus(self, descriptor: LocalSessionDescriptor, callback):
+		"""Run an authorized, read-only status query against this session.
+
+		Never starts a listener, invokes remote connection, or sends input.
+		A revoked session must not return a status after callback completion.
+		"""
+		from .localTestIpc import waitForStatus
+
+		with self._lock:
+			if not self._activeLocked() or self._descriptor is not descriptor:
+				raise PermissionError("Local status session inactive")
+			cancelled = self._cancelled
+		result = waitForStatus(callback, cancelled=cancelled)
+		with self._lock:
+			if not self._activeLocked() or self._descriptor is not descriptor:
+				raise PermissionError("Local status session revoked")
+		return result
+
 	def cancellationEvent(self) -> threading.Event:
 		"""Get the current session's cancellation signal, when still active."""
 		with self._lock:
