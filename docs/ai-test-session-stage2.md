@@ -165,3 +165,11 @@ event. A cancelled callback does not generate a status response; revocation is
 checked again immediately before sending a response. This does **not**
 interrupt a blocking Windows named-pipe `accept()` or replace a same-user ACL,
 and no IPC listener is enabled by the NVDA global plugin.
+
+### Session-bound one-shot dispatch (inactive)
+
+`LocalStatusSession.serveStatusOnce()` now forwards only the current session's
+in-memory pipe address, authentication key and cancellation event to the
+one-shot status primitive. Stale descriptors are rejected before dispatch.
+This method is **not connected** to the NVDA plugin and must not be activated
+until the blocking accept and same-user ACL requirements have been addressed.
