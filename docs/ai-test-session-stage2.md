@@ -157,3 +157,11 @@ more after callback completion, before returning a result. This closes a
 small race where revocation occurred after the wait loop observed completion.
 The session controller independently rechecks descriptor identity before
 returning status. Neither change activates the Windows named-pipe listener.
+
+### Optional revocation event on one-shot status transport
+
+The inactive `serveOneStatus()` transport now accepts an optional cancellation
+event. A cancelled callback does not generate a status response; revocation is
+checked again immediately before sending a response. This does **not**
+interrupt a blocking Windows named-pipe `accept()` or replace a same-user ACL,
+and no IPC listener is enabled by the NVDA global plugin.
