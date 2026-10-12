@@ -116,3 +116,10 @@ against the still-active session under the same lifecycle lock. A descriptor
 obtained before stop, rotation, or expiration is rejected. This check must be
 performed again when a future request is processed; it does not replace
 transport authentication or Windows ACL enforcement.
+
+### Invalid consent rotation
+
+The inactive session controller now validates requested consent duration
+before replacing an existing session. An invalid duration (including booleans,
+floats, or values outside 1–300 seconds) raises an error without revoking
+the previously authorized session. This change does not activate a listener.
