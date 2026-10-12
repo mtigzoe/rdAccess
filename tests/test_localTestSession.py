@@ -89,6 +89,35 @@ class LocalStatusSessionTests(unittest.TestCase):
 		self.assertTrue(cancelled.is_set())
 		self.assertFalse(session.active())
 
+	def test_timer_configuration_failure_preserves_existing_consent(self):
+		session = localTestSession.LocalStatusSession()
+		first = session.begin()
+		previous = session.cancellationEvent()
+
+		class BrokenTimer:
+			def __init__(self, *_args, **_kwargs):
+				self.cancelled = False
+
+			@property
+			def daemon(self):
+				return False
+
+			@daemon.setter
+			def daemon(self, _value):
+				raise RuntimeError("daemon unavailable")
+
+			def cancel(self):
+				self.cancelled = True
+
+		with (
+			mock.patch.object(localTestSession.threading, "Timer", BrokenTimer),
+			self.assertRaises(RuntimeError),
+		):
+			session.begin()
+		self.assertTrue(session.isCurrent(first))
+		self.assertFalse(previous.is_set())
+		session.stop()
+
 	def test_timer_creation_failure_preserves_existing_consent(self):
 		session = localTestSession.LocalStatusSession()
 		first = session.begin()
