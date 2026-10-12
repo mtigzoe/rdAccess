@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from multiprocessing.connection import Client, Listener
+import threading
 from typing import Any
 
 _MAX_REQUEST = 1024
@@ -103,6 +104,39 @@ def requestStatus(address: str, authKey: bytes) -> dict[str, Any]:
 	return sanitizeStatus(decodeJson(reply, limit=_MAX_RESPONSE))
 
 
+def waitForStatus(
+	statusCallback: Callable[[], dict[str, Any]],
+	*,
+	timeoutSeconds: float = _RESPONSE_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+	"""Run an isolated callback with a bounded wait (not cancellable on timeout).
+
+	Only pure, thread-safe callbacks may be used; this does not marshal to the
+	NVDA main thread. A timed-out worker may continue, so it must be read-only.
+	"""
+	if not 0 < timeoutSeconds <= _RESPONSE_TIMEOUT_SECONDS:
+		raise ValueError("Invalid callback timeout")
+	completed = threading.Event()
+	result: list[dict[str, Any]] = []
+	errors: list[BaseException] = []
+
+	def run() -> None:
+		try:
+			result.append(sanitizeStatus(statusCallback()))
+		except BaseException as exc:
+			errors.append(exc)
+		finally:
+			completed.set()
+
+	worker = threading.Thread(target=run, name="rdAccessLocalStatus", daemon=True)
+	worker.start()
+	if not completed.wait(timeoutSeconds):
+		raise TimeoutError("Local status callback timed out")
+	if errors:
+		raise errors[0]
+	return result[0]
+
+
 def serveOneStatus(
 	address: str,
 	authKey: bytes,
@@ -127,5 +161,5 @@ def serveOneStatus(
 			raise TimeoutError("Local status request timed out")
 		request = decodeJson(connection.recv_bytes(_MAX_REQUEST), limit=_MAX_REQUEST)
 		validateRequest(request)
-		response = sanitizeStatus(statusCallback())
+		response = waitForStatus(statusCallback)
 		connection.send_bytes(encodeJson(response, limit=_MAX_RESPONSE))
