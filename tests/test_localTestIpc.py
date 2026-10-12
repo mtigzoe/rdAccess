@@ -116,7 +116,6 @@ class LocalIpcTests(unittest.TestCase):
 			)
 		listener.assert_not_called()
 
-
 	def test_server_never_calls_status_callback_for_unsupported_action(self):
 		connection = mock.MagicMock()
 		connection.__enter__.return_value = connection
