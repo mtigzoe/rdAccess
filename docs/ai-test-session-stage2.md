@@ -191,3 +191,14 @@ termination. This provides one future cleanup boundary without opening any
 pipe, starting consent, exposing credentials, or connecting to Linux. The
 securely cancellable pipe listener and accessible user authorization workflow
 remain prerequisites before activating test-session IPC.
+
+### Bounded UI-thread status scheduling (inactive)
+
+`waitForMainThreadStatus(callback, dispatch)` provides an isolated read-only
+foundation for scheduling a snapshot on NVDA's main thread. It waits at most
+five seconds, rejects queued callbacks after timeout or cancellation, and
+sanitizes the returned schema. The supplied dispatcher must enqueue work on
+the actual UI thread; it must never execute inline. This is not yet wired to
+NVDA's `wx.CallAfter` or an active IPC listener, and queued callbacks that
+started before cancellation cannot be forcibly interrupted. Windows named
+pipe ACLs, cancellable accepts, and accessible opt-in remain blockers.
