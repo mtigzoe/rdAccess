@@ -58,13 +58,14 @@ class LocalStatusSession:
 			# Its random generation may fail independently of pipe credentials.
 			newConsent = LocalConsent()
 			newConsent.enable(lifetimeSeconds=lifetimeSeconds)
+			# Construct the expiry timer before revoking any previous session.
+			# Timer construction can fail just like credential generation.
+			timer = threading.Timer(lifetimeSeconds, self._expire, args=(descriptor,))
+			timer.daemon = True
 			self._stopLocked()
 			self._consent = newConsent
 			self._cancelled = threading.Event()
 			self._descriptor = descriptor
-			# Expiry must cancel pending work even without a status poll.
-			timer = threading.Timer(lifetimeSeconds, self._expire, args=(descriptor,))
-			timer.daemon = True
 			self._expiryTimer = timer
 			try:
 				timer.start()
