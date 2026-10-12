@@ -178,6 +178,8 @@ def serveOneStatus(
 			raise TimeoutError("Local status request timed out")
 		request = decodeJson(connection.recv_bytes(_MAX_REQUEST), limit=_MAX_REQUEST)
 		validateRequest(request)
+		if cancelled is not None and cancelled.is_set():
+			raise CancelledError("Local status session revoked")
 		response = waitForStatus(statusCallback, cancelled=cancelled)
 		if cancelled is not None and cancelled.is_set():
 			raise CancelledError("Local status session revoked")
