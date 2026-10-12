@@ -99,3 +99,12 @@ signals the event when `active()`, `descriptor()`, or `cancellationEvent()`
 checks discover expiry; no background expiration scheduler is installed.
 This still **cannot interrupt a blocked named-pipe accept or stop a callback
 thread**, and it does not enable a live listener.
+
+### Concurrent session lifecycle
+
+`LocalStatusSession` now serializes credential creation, rotation, consent
+revocation, and reads of the active descriptor under one reentrant lock.
+This prevents concurrent launcher requests from observing a partially
+rotated in-memory session. Tests exercise concurrent `begin()` and
+`stop()` calls. This only protects the inactive session controller;
+it does not enforce Windows pipe ACLs or implement listener cancellation.
