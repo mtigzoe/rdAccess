@@ -236,12 +236,26 @@ class LocalStatusSessionTests(unittest.TestCase):
 		callback = mock.Mock()
 		with mock.patch(f"{PKG}.localTestIpc.serveOneStatus") as serve:
 			session.serveStatusOnce(current, callback)
-		serve.assert_called_once_with(
-			current.address,
-			current.authKey,
-			callback,
-			cancelled=session.cancellationEvent(),
-		)
+		serve.assert_called_once()
+		self.assertEqual(serve.call_args.args[:2], (current.address, current.authKey))
+		self.assertEqual(serve.call_args.kwargs, {"cancelled": session.cancellationEvent()})
+		self.assertIs(serve.call_args.args[2](), callback.return_value)
+
+	def test_one_shot_delayed_callback_refuses_rotated_session(self):
+		session = localTestSession.LocalStatusSession()
+		current = session.begin()
+		status = mock.Mock(return_value={})
+		captured = []
+
+		def capture_handler(_address, _auth_key, callback, *, cancelled):
+			captured.append(callback)
+
+		with mock.patch(f"{PKG}.localTestIpc.serveOneStatus", side_effect=capture_handler):
+			session.serveStatusOnce(current, status)
+		session.begin()
+		with self.assertRaises(PermissionError):
+			captured[0]()
+		status.assert_not_called()
 
 	def test_one_shot_dispatch_rechecks_revocation_after_handler_returns(self):
 		session = localTestSession.LocalStatusSession()
