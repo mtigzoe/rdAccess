@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import secrets
 import threading
+from collections.abc import Callable
+from typing import Any
 from dataclasses import dataclass, field
 
 from .localTestRequest import LocalConsent
@@ -85,7 +87,11 @@ class LocalStatusSession:
 		with self._lock:
 			return self._activeLocked() and self._descriptor is descriptor
 
-	def readStatus(self, descriptor: LocalSessionDescriptor, callback):
+	def readStatus(
+		self,
+		descriptor: LocalSessionDescriptor,
+		callback: Callable[[], dict[str, Any]],
+	) -> dict[str, Any]:
 		"""Run an authorized, read-only status query against this session.
 
 		Never starts a listener, invokes remote connection, or sends input.
