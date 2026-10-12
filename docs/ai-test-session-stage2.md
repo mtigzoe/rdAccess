@@ -182,3 +182,12 @@ session cancels the prior timer, and an old timer callback cannot revoke a
 replacement session. This does not interrupt the underlying blocking Windows
 named-pipe `accept()`; the transport is still inactive pending secure ACLs and
 cancellable listener integration.
+
+### NVDA global-plugin lifecycle ownership
+
+The NVDA global plugin now creates an **inactive** `LocalStatusSession` on
+initialization (including secure-desktop startup) and revokes it on plugin
+termination. This provides one future cleanup boundary without opening any
+pipe, starting consent, exposing credentials, or connecting to Linux. The
+securely cancellable pipe listener and accessible user authorization workflow
+remain prerequisites before activating test-session IPC.
