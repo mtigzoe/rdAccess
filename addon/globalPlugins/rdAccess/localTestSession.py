@@ -159,6 +159,8 @@ class LocalStatusSession:
 		self,
 		descriptor: LocalSessionDescriptor,
 		callback: Callable[[], dict[str, Any]],
+		*,
+		dispatch: Callable[[Callable[[], None]], None] | None = None,
 	) -> None:
 		"""Bind an inactive one-shot transport to this exact consent session.
 
@@ -184,7 +186,13 @@ class LocalStatusSession:
 			return result
 
 		try:
-			serveOneStatus(descriptor.address, descriptor.authKey, authorizedCallback, cancelled=cancelled)
+			serveOneStatus(
+				descriptor.address,
+				descriptor.authKey,
+				authorizedCallback,
+				cancelled=cancelled,
+				dispatch=dispatch,
+			)
 		except CancelledError as exc:
 			raise PermissionError("Local status session revoked") from exc
 		with self._lock:
