@@ -36,6 +36,8 @@ def validatePipeAddress(address: str) -> str:
 
 
 def encodeJson(message: dict[str, Any], *, limit: int) -> bytes:
+	if type(limit) is not int or limit < 1 or type(message) is not dict:
+		raise ValueError("Invalid local message")
 	encoded = json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode("ascii")
 	if len(encoded) > limit:
 		raise ValueError("Local test message too large")
@@ -43,7 +45,7 @@ def encodeJson(message: dict[str, Any], *, limit: int) -> bytes:
 
 
 def decodeJson(data: bytes, *, limit: int) -> dict[str, Any]:
-	if type(data) is not bytes or len(data) > limit:
+	if type(limit) is not int or limit < 1 or type(data) is not bytes or len(data) > limit:
 		raise ValueError("Invalid message size")
 	try:
 		message = json.loads(data.decode("utf-8"))
@@ -78,6 +80,10 @@ def sanitizeStatus(value: Any) -> dict[str, Any]:
 	for key in ("transport_connected", "remote_control_active"):
 		if type(value[key]) is str and value[key] != "unverified":
 			raise ValueError("Invalid connection state")
+	if not value["bridge_attached"] and (
+		value["semantic_braille_negotiated"] or value["temporary_message_supported"]
+	):
+		raise ValueError("Detached bridge cannot expose negotiated capabilities")
 	if value["physical_braille"] != "unverified":
 		raise ValueError("Physical braille cannot be certified through IPC")
 	return {key: value[key] for key in _STATUS_FIELDS}
