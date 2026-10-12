@@ -38,6 +38,7 @@ class LocalStatusSessionTests(unittest.TestCase):
 		self.assertTrue(session.active())
 		self.assertEqual(len(first.authKey), 32)
 		self.assertEqual(session.descriptor(), first)
+		self.assertNotIn(str(first.authKey), repr(first))
 		second = session.begin()
 		self.assertNotEqual(first.authKey, second.authKey)
 		self.assertNotEqual(first.address, second.address)
