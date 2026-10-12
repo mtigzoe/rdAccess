@@ -25,7 +25,7 @@ from logHandler import log
 from utils.security import isRunningOnSecureDesktop, post_sessionLockStateChanged
 from winAPI.secureDesktop import post_secureDesktopStateChange
 
-from . import directoryChanges, handlers, settingsPanel
+from . import directoryChanges, handlers, localTestStatus, settingsPanel
 from .synthDetect import SynthDetector
 
 addon: addonHandler.Addon = addonHandler.getCodeAddon()
@@ -162,6 +162,10 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 		)
 		self._remoteAccessSemanticBrailleStopped = False
 		wx.CallAfter(self._refreshRemoteAccessSemanticBraille)
+
+	def getLocalTestStatus(self):
+		"""Return non-sensitive connection facts to trusted local add-on code."""
+		return localTestStatus.snapshot(self._remoteAccessSemanticBraille)
 
 	def _refreshRemoteAccessSemanticBraille(self):
 		"""Attach semantic Linux braille to a live NVDA Remote/TeleNVDA transport."""
