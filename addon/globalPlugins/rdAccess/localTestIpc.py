@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from collections.abc import Callable
+from concurrent.futures import CancelledError
 from multiprocessing.connection import Client, Listener
 from typing import Any
 
@@ -108,14 +110,19 @@ def waitForStatus(
 	statusCallback: Callable[[], dict[str, Any]],
 	*,
 	timeoutSeconds: float = _RESPONSE_TIMEOUT_SECONDS,
+	cancelled: threading.Event | None = None,
 ) -> dict[str, Any]:
 	"""Run an isolated callback with a bounded wait (not cancellable on timeout).
 
 	Only pure, thread-safe callbacks may be used; this does not marshal to the
 	NVDA main thread. A timed-out worker may continue, so it must be read-only.
 	"""
-	if not 0 < timeoutSeconds <= _RESPONSE_TIMEOUT_SECONDS:
+	if type(timeoutSeconds) not in (float, int) or not 0 < timeoutSeconds <= _RESPONSE_TIMEOUT_SECONDS:
 		raise ValueError("Invalid callback timeout")
+	if cancelled is not None and not isinstance(cancelled, threading.Event):
+		raise ValueError("Invalid cancellation event")
+	if cancelled is not None and cancelled.is_set():
+		raise CancelledError("Local status callback cancelled")
 	completed = threading.Event()
 	result: list[dict[str, Any]] = []
 	errors: list[BaseException] = []
@@ -130,8 +137,14 @@ def waitForStatus(
 
 	worker = threading.Thread(target=run, name="rdAccessLocalStatus", daemon=True)
 	worker.start()
-	if not completed.wait(timeoutSeconds):
-		raise TimeoutError("Local status callback timed out")
+	deadline = time.monotonic() + timeoutSeconds
+	while not completed.is_set():
+		if cancelled is not None and cancelled.is_set():
+			raise CancelledError("Local status callback cancelled")
+		remaining = deadline - time.monotonic()
+		if remaining <= 0:
+			raise TimeoutError("Local status callback timed out")
+		completed.wait(min(remaining, 0.05))
 	if errors:
 		raise errors[0]
 	return result[0]
