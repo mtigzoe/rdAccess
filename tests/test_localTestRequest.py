@@ -2,8 +2,8 @@
 
 import importlib.util
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 SOURCE = Path(__file__).resolve().parents[1] / "addon/globalPlugins/rdAccess/localTestRequest.py"
 spec = importlib.util.spec_from_file_location("localTestRequest", SOURCE)
@@ -41,7 +41,6 @@ class LocalTestRequestTests(unittest.TestCase):
 			with self.subTest(request=request), self.assertRaises(ValueError):
 				localTestRequest.validateRequest(request)
 
-
 	def test_consent_gate_is_disabled_by_default(self):
 		gate = localTestRequest.LocalConsent()
 		with self.assertRaises(PermissionError):
@@ -59,7 +58,7 @@ class LocalTestRequestTests(unittest.TestCase):
 			mock.patch.object(localTestRequest.time, "monotonic", return_value=110),
 			self.assertRaises(PermissionError),
 		):
-				gate.authorize(token, {"version": 1, "action": "status"})
+			gate.authorize(token, {"version": 1, "action": "status"})
 
 	def test_consent_revocation_and_rotation(self):
 		gate = localTestRequest.LocalConsent()
