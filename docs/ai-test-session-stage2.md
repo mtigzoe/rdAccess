@@ -39,3 +39,23 @@ The Linux launcher in PR #75 can already launch Windows NVDA on request and
 start the Linux side with explicit authorization. The missing Windows add-on
 auto-connect remains separately gated, and stage 3 remains a human-observed
 acceptance matrix until real instrumentation exists.
+
+## Inactive authenticated IPC transport primitives
+
+`localTestIpc.py` now contains an **unactivated** Windows named-pipe
+prototype: bounded JSON request/response encoding, a status-only client,
+and a one-request server. The server is **not imported/started by the NVDA
+global plugin**. No executable test-session endpoint exists yet.
+
+`multiprocessing.connection` authenticates possession of an ephemeral
+per-session auth key at pipe connection time. This does not itself prove
+same-user isolation: the Windows named-pipe ACL still needs a separately
+verified security descriptor, and no token can be written to the repository,
+logs, subprocess arguments, or an unsecured file. A random-looking pipe name
+alone is not an authorization boundary.
+
+Before activating the listener: enforce per-user ACLs, create accessible
+NVDA-side opt-in/stop controls, integrate the ephemeral consent gate, marshal
+status callbacks safely to NVDA's event thread, add request timeouts and
+shutdown behavior, and write Windows integration tests. Automatic connect
+and key injection remain explicitly out of scope.
