@@ -196,6 +196,26 @@ class LocalStatusSessionTests(unittest.TestCase):
 			self.assertFalse(cancelled.is_set())
 		self.assertIs(session.descriptor(), first)
 
+	def test_read_status_returns_only_sanitized_data_for_current_session(self):
+		session = localTestSession.LocalStatusSession()
+		current = session.begin()
+		status = {
+			"schema_version": 1,
+			"bridge_attached": False,
+			"transport_connected": "unverified",
+			"remote_control_active": "unverified",
+			"semantic_braille_negotiated": False,
+			"temporary_message_supported": False,
+			"physical_braille": "unverified",
+		}
+		self.assertEqual(session.readStatus(current, lambda: status), status)
+
+	def test_read_status_rejects_status_with_unapproved_fields(self):
+		session = localTestSession.LocalStatusSession()
+		current = session.begin()
+		with self.assertRaises(ValueError):
+			session.readStatus(current, lambda: {"relay_key": "never expose"})
+
 	def test_read_status_rejects_stale_descriptor_without_running_callback(self):
 		session = localTestSession.LocalStatusSession()
 		stale = session.begin()
