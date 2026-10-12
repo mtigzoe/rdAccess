@@ -54,7 +54,6 @@ def decodeJson(data: bytes, *, limit: int) -> dict[str, Any]:
 	return message
 
 
-
 _STATUS_FIELDS = {
 	"schema_version": int,
 	"bridge_attached": bool,

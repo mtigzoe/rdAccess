@@ -13,7 +13,6 @@ spec.loader.exec_module(localTestIpc)
 
 
 class LocalIpcTests(unittest.TestCase):
-
 	@staticmethod
 	def valid_status():
 		return {
