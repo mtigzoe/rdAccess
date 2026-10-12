@@ -4,6 +4,7 @@
 
 import atexit
 import subprocess
+import threading
 import typing
 from ctypes import WinError
 from fnmatch import fnmatch
@@ -182,6 +183,8 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		Caller must be on a worker thread. Does not start IPC or remote access.
 		"""
+		if threading.current_thread() is threading.main_thread():
+			raise RuntimeError("Local status worker must not run on NVDA main thread")
 		return localTestIpc.waitForMainThreadStatus(
 			lambda: self.handleLocalTestRequest({"version": 1, "action": "status"}),
 			wx.CallAfter,
