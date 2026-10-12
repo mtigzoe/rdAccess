@@ -228,7 +228,7 @@ class LocalStatusSessionTests(unittest.TestCase):
 			),
 			self.assertRaises(PermissionError),
 		):
-			session.readStatus(current, lambda: {})
+			session.readStatus(current, dict)
 
 	def test_read_status_rejects_stale_descriptor_without_running_callback(self):
 		session = localTestSession.LocalStatusSession()
