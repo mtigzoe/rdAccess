@@ -290,7 +290,12 @@ class LocalIpcTests(unittest.TestCase):
 			mock.patch.object(localTestIpc, "Listener", return_value=listener),
 			self.assertRaises(ValueError),
 		):
-			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback, dispatch=lambda task: task())
+			localTestIpc.serveOneStatus(
+				localTestIpc.pipeAddress("a" * 32),
+				b"k" * 32,
+				callback,
+				dispatch=lambda task: task(),
+			)
 		callback.assert_not_called()
 		connection.send_bytes.assert_not_called()
 
@@ -306,7 +311,12 @@ class LocalIpcTests(unittest.TestCase):
 			mock.patch.object(localTestIpc, "Listener", return_value=listener),
 			self.assertRaises(TimeoutError),
 		):
-			localTestIpc.serveOneStatus(localTestIpc.pipeAddress("a" * 32), b"k" * 32, callback, dispatch=lambda task: task())
+			localTestIpc.serveOneStatus(
+				localTestIpc.pipeAddress("a" * 32),
+				b"k" * 32,
+				callback,
+				dispatch=lambda task: task(),
+			)
 		callback.assert_not_called()
 		connection.recv_bytes.assert_not_called()
 
