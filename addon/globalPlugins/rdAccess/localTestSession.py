@@ -50,8 +50,12 @@ class LocalStatusSession:
 				address=pipeAddress(secrets.token_hex(16)),
 				authKey=secrets.token_bytes(32),
 			)
+			# Prepare the consent token before revoking the previous session.
+			# Its random generation may fail independently of pipe credentials.
+			newConsent = LocalConsent()
+			newConsent.enable(lifetimeSeconds=lifetimeSeconds)
 			self._stopLocked()
-			self._consent.enable(lifetimeSeconds=lifetimeSeconds)
+			self._consent = newConsent
 			self._cancelled = threading.Event()
 			self._descriptor = descriptor
 			return descriptor
