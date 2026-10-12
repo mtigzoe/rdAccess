@@ -48,6 +48,31 @@ class LocalIpcTests(unittest.TestCase):
 			localTestIpc.requestStatus(localTestIpc.pipeAddress("a" * 32), b"short")
 		client.assert_not_called()
 
+
+	def test_server_rejects_invalid_address_without_opening_listener(self):
+		with (
+			mock.patch.object(localTestIpc, "Listener") as listener,
+			self.assertRaises(ValueError),
+		):
+			localTestIpc.serveOneStatus(
+				"\\\\remote\\pipe\\linux-rdaccess-test-" + "a" * 32,
+				b"k" * 32,
+				lambda: {"bridge_attached": False},
+			)
+		listener.assert_not_called()
+
+	def test_server_rejects_short_auth_key_without_opening_listener(self):
+		with (
+			mock.patch.object(localTestIpc, "Listener") as listener,
+			self.assertRaises(ValueError),
+		):
+			localTestIpc.serveOneStatus(
+				localTestIpc.pipeAddress("a" * 32),
+				b"short",
+				lambda: {"bridge_attached": False},
+			)
+		listener.assert_not_called()
+
 	def test_status_client_sends_only_allowlisted_request(self):
 		connection = mock.MagicMock()
 		connection.__enter__.return_value = connection
