@@ -2,13 +2,20 @@
 
 import importlib.util
 import json
+import sys
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
 
 SOURCE = Path(__file__).resolve().parents[1] / "addon/globalPlugins/rdAccess/localTestIpc.py"
-spec = importlib.util.spec_from_file_location("localTestIpc", SOURCE)
+PACKAGE = "_rdaccess_ipc_tests"
+package = types.ModuleType(PACKAGE)
+package.__path__ = [str(SOURCE.parent)]
+sys.modules.setdefault(PACKAGE, package)
+spec = importlib.util.spec_from_file_location(f"{PACKAGE}.localTestIpc", SOURCE)
 localTestIpc = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = localTestIpc
 spec.loader.exec_module(localTestIpc)
 
 
