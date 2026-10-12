@@ -69,9 +69,11 @@ def serveOneStatus(
 		raise ValueError("Invalid authentication key")
 	from .localTestRequest import validateRequest
 
-	with Listener(address, family="AF_PIPE", authkey=authKey) as listener:
-		with listener.accept() as connection:
-			request = decodeJson(connection.recv_bytes(_MAX_REQUEST), limit=_MAX_REQUEST)
-			validateRequest(request)
-			response = statusCallback()
-			connection.send_bytes(encodeJson(response, limit=_MAX_RESPONSE))
+	with (
+		Listener(address, family="AF_PIPE", authkey=authKey) as listener,
+		listener.accept() as connection,
+	):
+		request = decodeJson(connection.recv_bytes(_MAX_REQUEST), limit=_MAX_REQUEST)
+		validateRequest(request)
+		response = statusCallback()
+		connection.send_bytes(encodeJson(response, limit=_MAX_RESPONSE))
