@@ -89,7 +89,7 @@ def load_bridge_module():
 	return module
 
 
-class SemanticBrailleBridgeTests(unittest.TestCase):
+class SemanticBrailleBridgeTestCase(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		cls.api, cls.eventHandler, cls.a11y = install_handler_runtime_stubs()
@@ -167,6 +167,8 @@ class SemanticBrailleBridgeTests(unittest.TestCase):
 		)
 		queueHandler.pumpAll()
 
+
+class SemanticBrailleBridgeTests(SemanticBrailleBridgeTestCase):
 	def test_negotiation_opts_in_only_after_supported_hello(self):
 		self.transport.callback_manager.callbacks["msg_lrd_a11y_hello"](version=99)
 		self.assertEqual(self.transport.sent, [])

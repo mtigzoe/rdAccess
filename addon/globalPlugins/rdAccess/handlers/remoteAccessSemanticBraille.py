@@ -5,11 +5,13 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import typing
 import unicodedata
 
 import addonHandler
 import braille
+import config
 import inputCore
 import queueHandler
 from logHandler import log
@@ -92,6 +94,8 @@ class RemoteAccessSemanticBrailleBridge:
 		self._focusId: str | None = None
 		self._lastNode = None
 		self._lastFocus: a11y.FocusMessage | None = None
+		self._focusReceiptLoggedSession: int | None = None
+		self._focusPresentationState: tuple[bool, bool, bool] | None = None
 		self._transportEvents = []
 		self._originalParse = None
 		self._installedParse = None
@@ -189,6 +193,7 @@ class RemoteAccessSemanticBrailleBridge:
 		self._focusId = None
 		self._lastNode = None
 		self._lastFocus = None
+		self._focusPresentationState = None
 
 	def _onTransportDisconnected(self, **_kwargs) -> None:
 		if self._terminated:
@@ -238,6 +243,16 @@ class RemoteAccessSemanticBrailleBridge:
 			commands.script_braille_nextLine,
 		}
 		if getattr(gesture, "script", None) in localScripts:
+			# executeGesture queues its script after this decision. Restore Linux
+			# regions first if a local Windows update replaced the shared buffer.
+			# The decider can run on an input thread, so do not touch braille here.
+			if self._lastFocus is not None:
+				queueHandler.queueFunction(
+					queueHandler.eventQueue,
+					self._recoverFocusBeforeGesture,
+					self._session,
+					self._controlGeneration,
+				)
 			return True
 		session = self._leaderSession()
 		forward = getattr(session, "handleDecideExecuteGesture", None)
@@ -322,8 +337,25 @@ class RemoteAccessSemanticBrailleBridge:
 			return
 		# A newer snapshot might already have rebuilt the remote buffer while
 		# this callback was queued. Never overwrite it with an earlier focus.
-		if self._focusId is None and self._lastFocus is not None:
+		if self._lastFocus is not None and not self._hasRemoteFocusRegion(self._lastFocus.focusId):
 			self._presentOnMainThread(session, self._lastFocus)
+
+	def _recoverFocusBeforeGesture(self, session: int, generation: int) -> None:
+		if generation != self._controlGeneration:
+			return
+		self._replayFocusOnMainThread(session)
+
+	def _hasRemoteFocusRegion(self, focusId: str | None) -> bool:
+		mainBuffer = getattr(braille.handler, "mainBuffer", None)
+		for region in getattr(mainBuffer, "regions", ()):
+			obj = getattr(region, "obj", None)
+			if (
+				isinstance(obj, RemoteA11yObject)
+				and obj._session == self._session
+				and obj._node.nodeId == focusId
+			):
+				return True
+		return False
 
 	def _activateNativeBraille(self) -> None:
 		client = self._client
@@ -429,12 +461,96 @@ class RemoteAccessSemanticBrailleBridge:
 			log.debugWarning("Ignoring invalid linux-rdaccess semantic braille snapshot")
 			return
 		session = self._session
+		if self._focusReceiptLoggedSession != session:
+			self._focusReceiptLoggedSession = session
+			log.info("Semantic braille focus snapshot accepted")
 		queueHandler.queueFunction(
 			queueHandler.eventQueue,
 			self._presentOnMainThread,
 			session,
 			message,
 		)
+
+	def _remoteFocusContextRegions(self, focus, oldFocusRegions=None):
+		"""Build context from Linux ancestry without reusing Windows regions."""
+		assert config.conf is not None
+		ancestors = []
+		parent = focus.parent
+		while isinstance(parent, RemoteA11yObject):
+			ancestors.append(parent)
+			parent = parent.parent
+		oldContexts = {
+			getattr(region, "_focusAncestorIndex", None): region.obj
+			for region in oldFocusRegions or ()
+			if isinstance(getattr(region, "obj", None), RemoteA11yObject)
+		}
+		contextChanged = False
+		hardLeftSet = False
+		for index, parent in enumerate(reversed(ancestors), 1):
+			if not parent.isPresentableFocusAncestor:
+				continue
+			previous = oldContexts.get(index)
+			if (
+				previous is None
+				or not parent._isEqual(previous)
+				or any(
+					getattr(parent, prop) != getattr(previous, prop)
+					for prop in ("name", "role", "roleText", "states", "value", "description")
+				)
+			):
+				contextChanged = True
+			region = braille.NVDAObjectRegion(parent, appendText=braille.TEXT_SEPARATOR)
+			region._focusAncestorIndex = index
+			if (
+				contextChanged
+				and not hardLeftSet
+				and config.conf["braille"]["focusContextPresentation"] == braille.CONTEXTPRES_CHANGEDCONTEXT
+			):
+				region.focusToHardLeft = True
+				hardLeftSet = True
+			region.update()
+			yield region
+
+	def _handleRemoteGainFocus(self, handler, focus) -> None:
+		# Core reads its context getter from the handleGainFocus function's
+		# module globals, including after braille became a package. Limit the
+		# override to this synchronous main-thread presentation and this object.
+		implementation = inspect.unwrap(getattr(braille, "BrailleHandler", type(handler)).handleGainFocus)
+		namespace = getattr(implementation, "__globals__", {})
+		original = namespace.get("getFocusContextRegions")
+		if not callable(original):
+			handler.handleGainFocus(focus)
+			return
+
+		def contextRegions(obj, oldFocusRegions=None):
+			if obj is focus:
+				return self._remoteFocusContextRegions(focus, oldFocusRegions)
+			return original(obj, oldFocusRegions=oldFocusRegions)
+
+		namespace["getFocusContextRegions"] = contextRegions
+		try:
+			handler.handleGainFocus(focus)
+		finally:
+			namespace["getFocusContextRegions"] = original
+			# Remote ancestor indexes must never become cached Windows context.
+			braille.invalidateCachedFocusAncestors(0)
+
+	def _logFocusPresentation(self, handler, focusId: str) -> None:
+		# Only fixed status booleans are logged, never labels, IDs or text.
+		with contextlib.suppress(Exception):
+			tetherGetter = getattr(handler, "getTether", None)
+			state = (
+				self._hasRemoteFocusRegion(focusId),
+				bool(getattr(handler, "enabled", False)),
+				bool(callable(tetherGetter) and tetherGetter() == "focus"),
+			)
+			if state != self._focusPresentationState:
+				self._focusPresentationState = state
+				log.info(
+					"Semantic braille presentation state: remote focus present=%s, "
+					"enabled=%s, focus tether=%s",
+					*state,
+				)
 
 	def _presentOnMainThread(self, session: int, message: a11y.FocusMessage) -> None:
 		if not self._isCurrentSession(session):
@@ -480,6 +596,7 @@ class RemoteAccessSemanticBrailleBridge:
 
 		previousFocusId = self._focusId
 		previousNode = self._lastNode
+		needsGainFocus = previousFocusId != message.focusId or not self._hasRemoteFocusRegion(message.focusId)
 		if previousFocusId == message.focusId:
 			# NVDA's handleUpdate finds an existing region by object equality but
 			# updates region.obj, not the new object argument. Rebind semantic
@@ -497,8 +614,9 @@ class RemoteAccessSemanticBrailleBridge:
 		self._focusId = message.focusId
 		self._lastNode = focus._node
 
-		if previousFocusId != message.focusId:
-			handler.handleGainFocus(focus)
+		if needsGainFocus:
+			self._handleRemoteGainFocus(handler, focus)
+			self._logFocusPresentation(handler, message.focusId)
 			return
 
 		caretChanged = previousNode is not None and (
