@@ -28,6 +28,24 @@ localTestSession = load("localTestSession")
 
 
 class LocalStatusSessionTests(unittest.TestCase):
+	def test_context_exit_revokes_session_and_cancels_timer(self):
+		with localTestSession.LocalStatusSession() as session:
+			current = session.begin()
+			cancelled = session.cancellationEvent()
+			self.assertTrue(session.isCurrent(current))
+		self.assertTrue(cancelled.is_set())
+		self.assertFalse(session.active())
+		with self.assertRaises(PermissionError):
+			session.descriptor()
+
+	def test_context_exit_on_error_revokes_session(self):
+		session = localTestSession.LocalStatusSession()
+		with self.assertRaisesRegex(RuntimeError, "failure"):
+			with session:
+				session.begin()
+				raise RuntimeError("failure")
+		self.assertFalse(session.active())
+
 	def test_starts_inactive_and_cannot_disclose_credentials(self):
 		session = localTestSession.LocalStatusSession()
 		self.assertFalse(session.active())
