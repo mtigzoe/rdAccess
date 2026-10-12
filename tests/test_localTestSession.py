@@ -220,6 +220,7 @@ class LocalStatusSessionTests(unittest.TestCase):
 				"temporary_message_supported": False,
 				"physical_braille": "unverified",
 			}
+
 		with self.assertRaises(PermissionError):
 			session.readStatus(current, callback)
 
