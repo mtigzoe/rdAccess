@@ -156,6 +156,8 @@ def serveOneStatus(
 	address: str,
 	authKey: bytes,
 	statusCallback: Callable[[], dict[str, Any]],
+	*,
+	cancelled: threading.Event | None = None,
 ) -> None:
 	"""One authenticated request; must only be called after explicit user opt-in.
 
@@ -176,5 +178,7 @@ def serveOneStatus(
 			raise TimeoutError("Local status request timed out")
 		request = decodeJson(connection.recv_bytes(_MAX_REQUEST), limit=_MAX_REQUEST)
 		validateRequest(request)
-		response = waitForStatus(statusCallback)
+		response = waitForStatus(statusCallback, cancelled=cancelled)
+		if cancelled is not None and cancelled.is_set():
+			raise CancelledError("Local status session revoked")
 		connection.send_bytes(encodeJson(response, limit=_MAX_RESPONSE))
