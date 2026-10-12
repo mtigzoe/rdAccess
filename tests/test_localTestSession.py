@@ -141,6 +141,24 @@ class LocalStatusSessionTests(unittest.TestCase):
 			with self.assertRaises(PermissionError):
 				session.descriptor()
 
+
+	def test_old_descriptor_rejected_after_rotation_or_stop(self):
+		session = localTestSession.LocalStatusSession()
+		first = session.begin()
+		self.assertTrue(session.isCurrent(first))
+		second = session.begin()
+		self.assertFalse(session.isCurrent(first))
+		self.assertTrue(session.isCurrent(second))
+		session.stop()
+		self.assertFalse(session.isCurrent(second))
+
+	def test_expired_descriptor_is_not_current(self):
+		session = localTestSession.LocalStatusSession()
+		with mock.patch(f"{PKG}.localTestRequest.time.monotonic", return_value=100):
+			issued = session.begin(lifetimeSeconds=5)
+		with mock.patch(f"{PKG}.localTestRequest.time.monotonic", return_value=105):
+			self.assertFalse(session.isCurrent(issued))
+
 	def test_invalid_lifetime_creates_no_session(self):
 		session = localTestSession.LocalStatusSession()
 		with self.assertRaises(ValueError):
