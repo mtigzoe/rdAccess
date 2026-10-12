@@ -149,3 +149,11 @@ session. This is strictly an in-process helper: it does not start a named-pipe
 listener, grant Windows access, or connect NVDA Remote Access. The callback
 worker can still continue after a timeout; callers must provide only safe,
 thread-independent, read-only callbacks.
+
+### Completion-time revocation check
+
+The bounded status callback helper now checks its cancellation event once
+more after callback completion, before returning a result. This closes a
+small race where revocation occurred after the wait loop observed completion.
+The session controller independently rechecks descriptor identity before
+returning status. Neither change activates the Windows named-pipe listener.
