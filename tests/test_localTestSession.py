@@ -56,6 +56,35 @@ class LocalStatusSessionTests(unittest.TestCase):
 			with self.assertRaises(PermissionError):
 				session.descriptor()
 
+
+	def test_stop_signals_pending_status_wait(self):
+		session = localTestSession.LocalStatusSession()
+		session.begin()
+		cancelled = session.cancellationEvent()
+		self.assertFalse(cancelled.is_set())
+		session.stop()
+		self.assertTrue(cancelled.is_set())
+		with self.assertRaises(PermissionError):
+			session.cancellationEvent()
+
+	def test_rotation_signals_previous_wait_without_cancelling_new_session(self):
+		session = localTestSession.LocalStatusSession()
+		session.begin()
+		prior = session.cancellationEvent()
+		session.begin()
+		self.assertTrue(prior.is_set())
+		self.assertFalse(session.cancellationEvent().is_set())
+		self.assertIsNot(prior, session.cancellationEvent())
+
+	def test_expiration_signals_pending_status_wait(self):
+		session = localTestSession.LocalStatusSession()
+		with mock.patch(f"{PKG}.localTestRequest.time.monotonic", return_value=100):
+			session.begin(lifetimeSeconds=5)
+			cancelled = session.cancellationEvent()
+		with mock.patch(f"{PKG}.localTestRequest.time.monotonic", return_value=105):
+			self.assertFalse(session.active())
+		self.assertTrue(cancelled.is_set())
+
 	def test_credential_generation_failure_never_activates_session(self):
 		session = localTestSession.LocalStatusSession()
 		with (
