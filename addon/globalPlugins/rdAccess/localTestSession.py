@@ -45,11 +45,12 @@ class LocalStatusSession:
 
 		validateLifetime(lifetimeSeconds)
 		with self._lock:
-			self._stopLocked()
+			# Credential allocation must succeed before replacing an active session.
 			descriptor = LocalSessionDescriptor(
 				address=pipeAddress(secrets.token_hex(16)),
 				authKey=secrets.token_bytes(32),
 			)
+			self._stopLocked()
 			self._consent.enable(lifetimeSeconds=lifetimeSeconds)
 			self._cancelled = threading.Event()
 			self._descriptor = descriptor
