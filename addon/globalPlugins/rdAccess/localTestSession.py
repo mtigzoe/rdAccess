@@ -33,12 +33,15 @@ class LocalStatusSession:
 		self.stop()
 		from .localTestIpc import pipeAddress
 
-		self._consent.enable(lifetimeSeconds=lifetimeSeconds)
-		self._descriptor = LocalSessionDescriptor(
+		# Prepare credentials before granting consent: allocation errors must not
+		# leave a half-activated session behind.
+		descriptor = LocalSessionDescriptor(
 			address=pipeAddress(secrets.token_hex(16)),
 			authKey=secrets.token_bytes(32),
 		)
-		return self._descriptor
+		self._consent.enable(lifetimeSeconds=lifetimeSeconds)
+		self._descriptor = descriptor
+		return descriptor
 
 	def active(self) -> bool:
 		return self._descriptor is not None and self._consent.active()
