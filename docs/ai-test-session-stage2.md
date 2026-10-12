@@ -2,8 +2,9 @@
 
 This branch implements an opt-in Windows endpoint. Importing the add-on does
 not start IPC or grant consent. Authorized live testing installed development
-version 20261012.0.1 into NVDA 2026.2. Live consent activation is still unresolved;
-Orca speech and physical braille have not been validated.
+version 20261012.0.1 into NVDA 2026.2. Live authenticated status, cancellation,
+connection-request handling and five-minute expiry passed. Relay/Orca speech and
+physical braille have not been validated.
 
 ## Accessible authorization
 
@@ -21,6 +22,9 @@ secure-desktop transitions, and plugin termination. Revoke immediately marks
 credentials invalid; cleanup runs on a worker without joining on NVDA's GUI
 thread. The consent dialog explains that test-owned connections end with
 authorization, while pre-existing connections remain intact.
+Duplicate authorization preserves the current credentials, permissions and expiry;
+it announces that the session is already active or ending rather than claiming
+revocation. A new session can start after the old worker finishes cleanup.
 
 ## Windows transport and credential boundary
 
@@ -135,12 +139,15 @@ cover saved settings, user-session preservation, partial failure, connection
 timeout, replacement races and log redaction. Existing speech/protocol/braille
 tests and packaging checks must also pass.
 
-Authorized preflight confirms installed sources match the branch, NVDA and the
-launcher use the same Windows account/session, and the Linux SSH readiness check
-passes without restarting Orca. After reported dialog completion, the actual
-launcher still finds no consent descriptor or pipe, and NVDA debug logs contain
-neither the consent callback nor a worker failure. This activation failure needs
-live diagnosis. Saved Windows controlling-relay host/key settings are also absent.
+Authorized preflight of version 20261012.0.1 confirmed installed sources matched
+the build. NVDA and the launcher used the same Windows account/session, and Linux
+SSH readiness passed without restarting Orca. The live endpoint answered authenticated
+status, cancel and connect requests. Connect returned `not_configured` while saved
+Windows relay settings were absent. Consent expired exactly five minutes after the
+startup log entry; the descriptor and pipe disappeared and subsequent requests
+were rejected. Live testing also exposed the duplicate-authorization announcement
+defect, now covered by a credential/expiry/permission-preservation regression.
+Successful relay connection and explicit live revocation remain acceptance items.
 
 An unrelated restricted token is a kernel security regression, not a live
 second-account/network acceptance run. Before release, verify live consent and

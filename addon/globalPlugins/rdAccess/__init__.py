@@ -31,7 +31,7 @@ from utils.security import isRunningOnSecureDesktop, post_sessionLockStateChange
 from winAPI.secureDesktop import post_secureDesktopStateChange
 
 from . import directoryChanges, handlers, localTestIpc, localTestRequest, localTestStatus, settingsPanel
-from .localTestService import LocalTestService
+from .localTestService import LocalTestService, LocalTestSessionBusyError
 from .localTestSession import LocalStatusSession
 from .synthDetect import SynthDetector
 
@@ -204,6 +204,14 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 		elif outcome == "failed":
 			# Translators: Generic failure message; never includes secrets or raw IPC errors.
 			ui.message(_("Could not start the Linux test session. Authorization revoked."))
+		elif outcome == "busy":
+			# Translators: A duplicate authorization preserves the existing session and its expiry.
+			ui.message(
+				_(
+					"Linux test session is already active or ending. "
+					"Revoke it or wait before authorizing again.",
+				),
+			)
 		else:
 			# Translators: Announces expiry or completion of test-session authorization.
 			ui.message(_("Linux test session authorization ended"))
@@ -225,6 +233,8 @@ class RDGlobalPlugin(globalPluginHandler.GlobalPlugin):
 					allowConnect=dialog.allowConnect.GetValue(),
 					remote=findRemoteConnection(getattr(globalPluginHandler, "runningPlugins", ())),
 				)
+			except LocalTestSessionBusyError:
+				self._notifyLocalTestSession("busy")
 			except Exception as error:
 				log.warning("Local test consent could not start (%s)", type(error).__name__)
 				self._notifyLocalTestSession("failed")

@@ -16,7 +16,12 @@ from .localTestRemote import RemoteConnection
 from .localTestSession import LocalStatusSession
 from .localTestTransport import descriptorPath, publishDescriptor, sanitizeReply, serveConnection
 
-_log = logging.getLogger(__name__)
+# NVDA filters INFO records from differently named dependency loggers.
+_log = logging.getLogger("nvda")
+
+
+class LocalTestSessionBusyError(PermissionError):
+	"""The previous worker still owns consent or is completing cleanup."""
 
 
 class LocalTestService:
@@ -46,8 +51,10 @@ class LocalTestService:
 	def start(self, *, allowConnect: bool, remote: RemoteConnection | None) -> None:
 		if threading.current_thread() is not threading.main_thread():
 			raise RuntimeError("Consent requires NVDA's main thread")
-		if not self._permitted() or (self.worker is not None and self.worker.is_alive()):
-			raise PermissionError("Local test session unavailable or already active")
+		if not self._permitted():
+			raise PermissionError("Local test session unavailable")
+		if self.worker is not None and self.worker.is_alive():
+			raise LocalTestSessionBusyError("Local test session already active or ending")
 		descriptor = self.session.begin()
 		cancelled = self.session.cancellationEvent()
 		self._remote = remote

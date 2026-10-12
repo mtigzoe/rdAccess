@@ -15,7 +15,9 @@
 - [x] Verify final Windows Actions after the pending-DNS and POT extraction corrections.
 - [x] Obtain authorization for live testing and install development version 20261012.0.1.
 - [x] Correct stale incremental package metadata and exclude Python bytecode.
-- [ ] Resolve live consent activation and configure saved Windows controlling-relay settings.
+- [x] Verify live authenticated status/cancel/connect handling and five-minute expiry.
+- [x] Correct duplicate authorization announcing revocation while the original consent remains active.
+- [ ] Verify a successful connection using saved Windows controlling-relay settings.
 - [ ] Complete live connection, revocation, speech and available braille acceptance.
 
 Baseline: remote Windows head fb2287d, Linux head 12079d4. GitHub unit tests
@@ -32,14 +34,14 @@ Windows CI exposed Administrator SID abbreviation in SDDL; the regression now
 compares the raw ACE SID. The add-on build passed, but POT extraction rejected
 the non-ASCII menu ellipsis; its source label now uses three ASCII dots.
 All six companion workflows passed at 2c1045f. All three Windows workflows passed
-at 14afa89 after packaging and privacy-safe diagnostic improvements: 423 unit tests,
+at 0075e9f after packaging and privacy-safe diagnostic improvements: 423 unit tests,
 Ruff, and add-on packaging with POT extraction.
 
 Remaining limitations: legacy automatic connection lacks a bounded cleanup API;
 start-all reuses a configured Orca session because Linux connect normally restarts
 Orca. End-to-end speech, semantic presentation, physical braille, dialog accessibility,
 and actual second-account/network acceptance remain unverified. Authorized live
-preflight confirms Linux SSH readiness without restarting Orca. Consent activation
-is unresolved: no descriptor/pipe or consent callback log appears after the reported
-dialog completion. Installed source/bytecode, debug logging, and matching Windows
-account/session have been verified; saved Windows relay host/key settings are absent.
+preflight confirms Linux SSH readiness without restarting Orca. Live consent,
+authenticated status/cancel/connect requests, five-minute expiry and endpoint
+cleanup passed in NVDA 2026.2. Connect initially reported missing Windows relay
+settings; successful relay connection and explicit live revocation remain pending.

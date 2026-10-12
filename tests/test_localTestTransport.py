@@ -181,6 +181,20 @@ class WindowsTransportTests(unittest.TestCase):
 		with self.assertRaises(TimeoutError):
 			self.windows.Pipe.client(address, threading.Event(), time.monotonic() + 0.05)
 
+	def test_duplicate_authorization_preserves_credentials_expiry_and_permissions(self):
+		originalRemote, replacementRemote = mock.Mock(), mock.Mock()
+		address, key = self.start(allowConnect=False, remote=originalRemote)
+		descriptor, worker, published = self.session.descriptor(), self.service.worker, self.path.read_bytes()
+		with self.assertRaises(serviceModule.LocalTestSessionBusyError):
+			self.service.start(allowConnect=True, remote=replacementRemote)
+		self.assertIs(self.session.descriptor(), descriptor)
+		self.assertIs(self.service.worker, worker)
+		self.assertEqual(self.path.read_bytes(), published)
+		self.assertEqual(self.call(address, key, "connect")["result"], "not_authorized")
+		originalRemote.connect.assert_not_called()
+		replacementRemote.connect.assert_not_called()
+		self.assertNotIn("failed", self.notifications)
+
 	def test_automatic_expiration_closes_idle_listener(self):
 		self.start()
 		descriptor = self.session.descriptor()
@@ -373,7 +387,7 @@ class WindowsTransportTests(unittest.TestCase):
 	def test_startup_publication_failure_revokes_credentials_and_closes_pipe(self):
 		with (
 			mock.patch.object(serviceModule, "publishDescriptor", side_effect=OSError("private path")),
-			self.assertLogs(serviceModule.__name__, level="WARNING") as messages,
+			self.assertLogs("nvda", level="WARNING") as messages,
 		):
 			self.service.start(allowConnect=True, remote=None)
 			self.until(lambda: not self.service.worker.is_alive())
