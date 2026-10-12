@@ -30,7 +30,7 @@ def validatePipeAddress(address: str) -> str:
 	"""Reject arbitrary pipe names and remote pipe paths before any IPC."""
 	if type(address) is not str or not address.startswith(_PIPE_PREFIX):
 		raise ValueError("Invalid local pipe address")
-	if pipeAddress(address[len(_PIPE_PREFIX):]) != address:
+	if pipeAddress(address[len(_PIPE_PREFIX) :]) != address:
 		raise ValueError("Invalid local pipe address")
 	return address
 

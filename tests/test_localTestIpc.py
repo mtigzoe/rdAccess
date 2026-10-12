@@ -28,7 +28,6 @@ class LocalIpcTests(unittest.TestCase):
 		with self.assertRaises(ValueError):
 			localTestIpc.encodeJson({"text": "x" * 2000}, limit=1024)
 
-
 	def test_rejects_unexpected_or_remote_pipe_addresses_before_client_call(self):
 		for address in (
 			"\\\\remote\\pipe\\linux-rdaccess-test-" + "a" * 32,
