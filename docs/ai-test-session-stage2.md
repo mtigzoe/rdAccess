@@ -123,3 +123,10 @@ The inactive session controller now validates requested consent duration
 before replacing an existing session. An invalid duration (including booleans,
 floats, or values outside 1–300 seconds) raises an error without revoking
 the previously authorized session. This change does not activate a listener.
+
+### Failed credential rotation
+
+Session credential allocation now occurs before old credentials are revoked.
+If generating a replacement pipe identifier or auth key fails, the previously
+active, consented session remains valid and its cancellation event remains
+unset. This does not activate an IPC listener or alter Windows processes.
