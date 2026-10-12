@@ -361,8 +361,16 @@ class LocalStatusSessionTests(unittest.TestCase):
 			session.serveStatusOnce(current, callback)
 		serve.assert_called_once()
 		self.assertEqual(serve.call_args.args[:2], (current.address, current.authKey))
-		self.assertEqual(serve.call_args.kwargs, {"cancelled": session.cancellationEvent()})
+		self.assertEqual(serve.call_args.kwargs, {"cancelled": session.cancellationEvent(), "dispatch": None})
 		self.assertIs(serve.call_args.args[2](), callback.return_value)
+
+	def test_one_shot_dispatcher_passed_to_transport(self):
+		session = localTestSession.LocalStatusSession()
+		current = session.begin()
+		dispatch = mock.Mock()
+		with mock.patch(f"{PKG}.localTestIpc.serveOneStatus") as serve:
+			session.serveStatusOnce(current, dict, dispatch=dispatch)
+		self.assertIs(serve.call_args.kwargs["dispatch"], dispatch)
 
 	def test_one_shot_delayed_callback_refuses_rotated_session(self):
 		session = localTestSession.LocalStatusSession()
