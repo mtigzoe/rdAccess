@@ -16,6 +16,13 @@ from dataclasses import dataclass, field
 from .localTestRequest import LocalConsent
 
 
+def validateLifetime(value: int) -> int:
+	"""Reject malformed consent durations without altering an active session."""
+	if type(value) is not int or not 1 <= value <= 300:
+		raise ValueError("Invalid consent lifetime")
+	return value
+
+
 @dataclass(frozen=True)
 class LocalSessionDescriptor:
 	address: str
@@ -36,6 +43,7 @@ class LocalStatusSession:
 		"""Create a new opt-in session atomically; never open an IPC listener."""
 		from .localTestIpc import pipeAddress
 
+		validateLifetime(lifetimeSeconds)
 		with self._lock:
 			self._stopLocked()
 			descriptor = LocalSessionDescriptor(
