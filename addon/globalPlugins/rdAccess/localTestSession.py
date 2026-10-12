@@ -1,0 +1,219 @@
+# RDAccess: Remote Desktop Accessibility for NVDA
+# Copyright 2026
+# License: GNU General Public License version 2.0 or later
+"""Inactive controller for user-consented, read-only local status sessions.
+
+The controller never opens an IPC listener. The application must explicitly
+enable it and separately install a secure same-user transport.
+"""
+
+from __future__ import annotations
+
+import secrets
+import threading
+from collections.abc import Callable
+from concurrent.futures import CancelledError
+from contextlib import suppress
+from dataclasses import dataclass, field
+from typing import Any
+
+from .localTestRequest import LocalConsent
+
+
+def validateLifetime(value: int) -> int:
+	"""Reject malformed consent durations without altering an active session."""
+	if type(value) is not int or not 1 <= value <= 300:
+		raise ValueError("Invalid consent lifetime")
+	return value
+
+
+@dataclass(frozen=True)
+class LocalSessionDescriptor:
+	address: str
+	authKey: bytes = field(repr=False)
+
+
+class LocalStatusSession:
+	"""Hold ephemeral IPC credentials and revocable consent in memory only."""
+
+	def __init__(self):
+		self._consent = LocalConsent()
+		self._descriptor: LocalSessionDescriptor | None = None
+		self._cancelled = threading.Event()
+		self._cancelled.set()
+		self._lock = threading.RLock()
+		self._expiryTimer: threading.Timer | None = None
+
+	def __enter__(self) -> LocalStatusSession:
+		"""Allow callers to scope temporary consent to a cleanup boundary."""
+		return self
+
+	def __exit__(self, _excType: object, _exc: object, _traceback: object) -> None:
+		"""Revoke consent on normal exit and exceptions alike."""
+		self.stop()
+
+	def begin(self, *, lifetimeSeconds: int = 300) -> LocalSessionDescriptor:
+		"""Create a new opt-in session atomically; never open an IPC listener."""
+		from .localTestIpc import pipeAddress
+
+		validateLifetime(lifetimeSeconds)
+		with self._lock:
+			# Credential allocation must succeed before replacing an active session.
+			descriptor = LocalSessionDescriptor(
+				address=pipeAddress(secrets.token_hex(16)),
+				authKey=secrets.token_bytes(32),
+			)
+			# Prepare the consent token before revoking the previous session.
+			# Its random generation may fail independently of pipe credentials.
+			newConsent = LocalConsent()
+			newConsent.enable(lifetimeSeconds=lifetimeSeconds)
+			# Construct the expiry timer before revoking any previous session.
+			# Timer construction or daemon configuration can fail.
+			timer = threading.Timer(lifetimeSeconds, self._expire, args=(descriptor,))
+			try:
+				timer.daemon = True
+			except Exception:
+				timer.cancel()
+				raise
+			self._stopLocked()
+			self._consent = newConsent
+			self._cancelled = threading.Event()
+			self._descriptor = descriptor
+			self._expiryTimer = timer
+			try:
+				timer.start()
+			except Exception:
+				# Fail closed even when an unusual Timer implementation raises.
+				# Keep the original startup failure rather than a cleanup error.
+				try:
+					self._stopLocked()
+				except Exception:
+					self._cancelled.set()
+					self._descriptor = None
+					self._expiryTimer = None
+					self._consent.revoke()
+				raise
+			return descriptor
+
+	def _expire(self, descriptor: LocalSessionDescriptor) -> None:
+		with self._lock:
+			if self._descriptor is descriptor:
+				self._stopLocked()
+
+	def _activeLocked(self) -> bool:
+		if self._descriptor is None:
+			return False
+		if not self._consent.active():
+			# Drop expired credentials and stop the redundant expiry timer.
+			self._stopLocked()
+			return False
+		return not self._cancelled.is_set()
+
+	def active(self) -> bool:
+		with self._lock:
+			return self._activeLocked()
+
+	def _stopLocked(self) -> None:
+		"""Revoke credentials before touching any potentially failing timer."""
+		timer = self._expiryTimer
+		self._expiryTimer = None
+		self._cancelled.set()
+		self._consent.revoke()
+		self._descriptor = None
+		if timer is not None:
+			with suppress(Exception):
+				timer.cancel()
+
+	def stop(self) -> None:
+		"""Revoke pending waits and credentials without starting a listener."""
+		with self._lock:
+			self._stopLocked()
+
+	def isCurrent(self, descriptor: LocalSessionDescriptor) -> bool:
+		"""Reject stale credentials after rotation, revocation, or expiry."""
+		with self._lock:
+			return self._activeLocked() and self._descriptor is descriptor
+
+	def readStatus(
+		self,
+		descriptor: LocalSessionDescriptor,
+		callback: Callable[[], dict[str, Any]],
+	) -> dict[str, Any]:
+		"""Run an authorized, read-only status query against this session.
+
+		Never starts a listener, invokes remote connection, or sends input.
+		A revoked session must not return a status after callback completion.
+		"""
+		from .localTestIpc import waitForStatus
+
+		with self._lock:
+			if not self._activeLocked() or self._descriptor is not descriptor:
+				raise PermissionError("Local status session inactive")
+			cancelled = self._cancelled
+		try:
+			result = waitForStatus(callback, cancelled=cancelled)
+		except CancelledError as exc:
+			raise PermissionError("Local status session revoked") from exc
+		with self._lock:
+			if not self._activeLocked() or self._descriptor is not descriptor:
+				raise PermissionError("Local status session revoked")
+		return result
+
+	def serveStatusOnce(
+		self,
+		descriptor: LocalSessionDescriptor,
+		callback: Callable[[], dict[str, Any]],
+		*,
+		dispatch: Callable[[Callable[[], None]], None] | None = None,
+	) -> None:
+		"""Bind an inactive one-shot transport to this exact consent session.
+
+		This is a blocking primitive for future integration, not a listener
+		startup path. Callers must first enforce same-user Windows pipe ACLs
+		and provide a cancellable accept implementation.
+		"""
+		from .localTestIpc import serveOneStatus
+
+		if dispatch is None:
+			raise ValueError("NVDA main-thread dispatcher required")
+		with self._lock:
+			if not self._activeLocked() or self._descriptor is not descriptor:
+				raise PermissionError("Local status session inactive")
+			cancelled = self._cancelled
+
+		def authorizedCallback() -> dict[str, Any]:
+			with self._lock:
+				if not self._activeLocked() or self._descriptor is not descriptor:
+					raise PermissionError("Local status session revoked")
+			result = callback()
+			with self._lock:
+				if not self._activeLocked() or self._descriptor is not descriptor:
+					raise PermissionError("Local status session revoked")
+			return result
+
+		try:
+			serveOneStatus(
+				descriptor.address,
+				descriptor.authKey,
+				authorizedCallback,
+				cancelled=cancelled,
+				dispatch=dispatch,
+			)
+		except CancelledError as exc:
+			raise PermissionError("Local status session revoked") from exc
+		with self._lock:
+			if not self._activeLocked() or self._descriptor is not descriptor:
+				raise PermissionError("Local status session revoked")
+
+	def cancellationEvent(self) -> threading.Event:
+		"""Get the current session's cancellation signal, when still active."""
+		with self._lock:
+			if not self._activeLocked():
+				raise PermissionError("Local status session inactive")
+			return self._cancelled
+
+	def descriptor(self) -> LocalSessionDescriptor:
+		with self._lock:
+			if not self._activeLocked() or self._descriptor is None:
+				raise PermissionError("Local status session inactive")
+			return self._descriptor

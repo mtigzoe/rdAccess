@@ -41,6 +41,7 @@ def generate(env: Environment):
 		)
 		and None,
 		lambda target, source, env: f"Generating Addon {target[0]}",
+		varlist=["excludePatterns"],
 	)
 	env["BUILDERS"]["NVDAAddon"] = Builder(
 		action=addonAction,
@@ -63,6 +64,7 @@ def generate(env: Environment):
 		)
 		and None,
 		lambda target, source, env: f"Generating manifest {target[0]}",
+		varlist=["addon_info", "brailleTables", "symbolDictionaries", "speechDictionaries"],
 	)
 	env["BUILDERS"]["NVDAManifest"] = Builder(
 		action=manifestAction,
@@ -82,6 +84,7 @@ def generate(env: Environment):
 		)
 		and None,
 		lambda target, source, env: f"Generating translated manifest {target[0]}",
+		varlist=["addon_info", "brailleTables", "symbolDictionaries", "speechDictionaries"],
 	)
 
 	env["BUILDERS"]["NVDATranslatedManifest"] = Builder(
@@ -102,6 +105,7 @@ def generate(env: Environment):
 		)
 		and None,
 		lambda target, source, env: f"Generating {target[0]}",
+		varlist=["addon_info", "mdExtensions"],
 	)
 	env["BUILDERS"]["md2html"] = env.Builder(
 		action=mdAction,
