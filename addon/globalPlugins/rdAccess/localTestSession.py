@@ -43,6 +43,14 @@ class LocalStatusSession:
 		self._lock = threading.RLock()
 		self._expiryTimer: threading.Timer | None = None
 
+	def __enter__(self) -> LocalStatusSession:
+		"""Allow callers to scope temporary consent to a cleanup boundary."""
+		return self
+
+	def __exit__(self, _excType: object, _exc: object, _traceback: object) -> None:
+		"""Revoke consent on normal exit and exceptions alike."""
+		self.stop()
+
 	def begin(self, *, lifetimeSeconds: int = 300) -> LocalSessionDescriptor:
 		"""Create a new opt-in session atomically; never open an IPC listener."""
 		from .localTestIpc import pipeAddress
